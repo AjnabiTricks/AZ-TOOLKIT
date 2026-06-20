@@ -2,7 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
 // 🔴 PUT YOUR NEW TOKEN HERE (never share it again)
-const TOKEN = 'YOUR_NEW_BOT_TOKEN_HERE';
+const TOKEN = '8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I';
 
 const bot = new TelegramBot(TOKEN, { polling: true });
 
