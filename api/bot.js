@@ -109,10 +109,15 @@ module.exports = async (req, res) => {
         out += `Address: ${r.address}\n\n`;
       });
 
+      out += `\n━━━━━━━━━━━━━━\n📢 WhatsApp Channel Join Karen:\nhttps://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D`;
+
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
         text: out
       });
+
+
+      
 
       return res.status(200).send("OK");
     }
@@ -141,6 +146,8 @@ module.exports = async (req, res) => {
         out += `CNIC: ${r.cnic}\n`;
         out += `Address: ${r.address}\n\n`;
       });
+
+      out += `\n━━━━━━━━━━━━━━\n📢 WhatsApp Channel Join Karen:\nhttps://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D`;
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
