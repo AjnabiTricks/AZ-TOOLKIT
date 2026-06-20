@@ -1,6 +1,6 @@
 const axios = require("axios");
 
-const TOKEN = "YOUR_BOT_TOKEN";
+const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
 module.exports = async (req, res) => {
