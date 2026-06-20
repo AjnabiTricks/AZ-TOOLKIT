@@ -1,3 +1,4 @@
+const ADMIN_ID = 123456789; // <-- apna Telegram user ID yahan dalna
 const axios = require("axios");
 
 const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
