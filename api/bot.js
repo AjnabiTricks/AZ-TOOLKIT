@@ -1,9 +1,3 @@
-const ADMIN_IDS = [
-  6581234524,
-  7133052934,
-  6343143457
-];
-
 const axios = require("axios");
 
 const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
@@ -63,7 +57,55 @@ module.exports = async (req, res) => {
 
     const chatId = msg.chat.id;
     const text = msg.text.trim();
+// 👑 ADMINS
+const ADMIN_IDS = [
+  6581234524,
+  7133052934,
+  6343143457
+];
 
+function isAdmin(userId) {
+  return ADMIN_IDS.includes(Number(userId));
+}
+
+// 👑 ADMIN PANEL
+if (text === "/admin") {
+
+  if (!isAdmin(msg.from.id)) {
+    await axios.post(`${API}/sendMessage`, {
+      chat_id: chatId,
+      text: "❌ Access Denied"
+    });
+
+    return res.status(200).send("OK");
+  }
+
+  await axios.post(`${API}/sendMessage`, {
+    chat_id: chatId,
+    text: `👑 ADMIN PANEL
+
+📊 /stats - Bot Status
+📢 /broadcast MESSAGE - Broadcast Message
+🆔 Your ID: ${msg.from.id}`
+  });
+
+  return res.status(200).send("OK");
+}
+
+// 📊 STATS COMMAND
+if (text === "/stats") {
+
+  if (!isAdmin(msg.from.id)) {
+    return res.status(200).send("OK");
+  }
+
+  await axios.post(`${API}/sendMessage`, {
+    chat_id: chatId,
+    text: "✅ Bot Status: Online\n🚀 Server: Vercel Running"
+  });
+
+  return res.status(200).send("OK");
+}
     // 🔒 /start
     if (text === "/start") {
       const joined = await checkJoin(msg.from.id);
