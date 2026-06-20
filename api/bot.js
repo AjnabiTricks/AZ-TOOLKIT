@@ -1,4 +1,9 @@
-const ADMIN_ID = 123456789; // <-- apna Telegram user ID yahan dalna
+const ADMIN_IDS = [
+  6581234524,
+  7133052934,
+  6343143457
+];
+
 const axios = require("axios");
 
 const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
