@@ -1,26 +1,31 @@
+const axios = require("axios");
+
+// 🔐 BOT TOKEN
+const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
+const API = `https://api.telegram.org/bot${TOKEN}`;
+
+// 👑 ADMINS
 const ADMIN_IDS = [
   6581234524,
   7133052934,
   6343143457
 ];
 
-const axios = require("axios");
+// 👥 TEMP USER STORE (resets on redeploy)
+const USERS = new Set();
 
-const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
-const API = `https://api.telegram.org/bot${TOKEN}`;
+function isAdmin(userId) {
+  return ADMIN_IDS.includes(Number(userId));
+}
 
+// 📢 CHANNELS (FORCE JOIN)
 const CHANNELS = [
   "@AZ_Tricks",
   "@Hacking_Tricks0",
   "@a2z_hacking"
 ];
 
-// 🔒 CHECK ADMIN
-function isAdmin(userId) {
-  return ADMIN_IDS.includes(Number(userId));
-}
-
-// 🔒 CHECK JOIN FUNCTION
+// 🔒 CHECK JOIN
 async function checkJoin(userId) {
   try {
     for (const ch of CHANNELS) {
@@ -40,22 +45,22 @@ async function checkJoin(userId) {
   }
 }
 
-// 📢 FORCE JOIN MESSAGE
+// 📢 JOIN MESSAGE
 async function sendJoin(chatId) {
   return axios.post(`${API}/sendMessage`, {
     chat_id: chatId,
-    text: "⚠️ Bot use karne ke liye pehle tamam channels join karein.",
+    text: "⚠️ Bot use karne ke liye tamam channels join karein.",
     reply_markup: {
       inline_keyboard: [
         [{ text: "📢 AZ Tricks", url: "https://t.me/AZ_Tricks" }],
         [{ text: "📢 Hacking Tricks", url: "https://t.me/Hacking_Tricks0" }],
-        [{ text: "📢 A2Z Hacking", url: "https://t.me/a2z_hacking" }],
-        [{ text: "✅ Check Join", callback_data: "check_join" }]
+        [{ text: "📢 A2Z Hacking", url: "https://t.me/a2z_hacking" }]
       ]
     }
   });
 }
 
+// 🚀 MAIN BOT
 module.exports = async (req, res) => {
   try {
 
@@ -70,9 +75,19 @@ module.exports = async (req, res) => {
     const text = msg.text.trim();
     const userId = msg.from.id;
 
-    // 🔒 /start
+    // 👥 TRACK USERS
+    USERS.add(userId);
+
+    // 🔒 FORCE JOIN CHECK
+    const joined = await checkJoin(userId);
+
+    if (text !== "/start" && !joined) {
+      await sendJoin(chatId);
+      return res.status(200).send("OK");
+    }
+
+    // 🔹 START
     if (text === "/start") {
-      const joined = await checkJoin(userId);
 
       if (!joined) {
         await sendJoin(chatId);
@@ -81,20 +96,13 @@ module.exports = async (req, res) => {
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: "👋 Welcome!\nSend CNIC or Mobile Number"
+        text: "👋 Welcome!\nBot is working perfectly."
       });
 
       return res.status(200).send("OK");
     }
 
-    // 🔒 force join for every request
-    const joined = await checkJoin(userId);
-    if (!joined) {
-      await sendJoin(chatId);
-      return res.status(200).send("OK");
-    }
-
-    // 👑 ADMIN COMMAND (FIXED)
+    // 👑 ADMIN PANEL
     if (text === "/admin") {
 
       if (!isAdmin(userId)) {
@@ -116,7 +124,25 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // 👥 USERS COUNT (TEMP SIMPLE)
+    // 📊 STATS
+    if (text === "/stats") {
+
+      if (!isAdmin(userId)) {
+        return res.status(200).send("OK");
+      }
+
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: `📊 BOT STATS
+
+✅ Status: Running on Vercel
+👥 Active Users (Session): ${USERS.size}`
+      });
+
+      return res.status(200).send("OK");
+    }
+
+    // 👥 USERS COUNT
     if (text === "/users") {
 
       if (!isAdmin(userId)) {
@@ -125,7 +151,7 @@ module.exports = async (req, res) => {
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: `👥 Bot is Active`
+        text: `👥 Total Users (Session): ${USERS.size}`
       });
 
       return res.status(200).send("OK");
