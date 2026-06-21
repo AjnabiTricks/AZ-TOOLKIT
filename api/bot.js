@@ -11,14 +11,14 @@ const ADMIN_IDS = [
   6343143457
 ];
 
-// 👥 TEMP USER STORE (resets on redeploy)
+// 👥 USERS (session based)
 const USERS = new Set();
 
-function isAdmin(userId) {
-  return ADMIN_IDS.includes(Number(userId));
+function isAdmin(id) {
+  return ADMIN_IDS.includes(Number(id));
 }
 
-// 📢 CHANNELS (FORCE JOIN)
+// 📢 CHANNELS
 const CHANNELS = [
   "@AZ_Tricks",
   "@Hacking_Tricks0",
@@ -86,7 +86,7 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // 🔹 START
+    // 🔹 START FIXED
     if (text === "/start") {
 
       if (!joined) {
@@ -96,7 +96,7 @@ module.exports = async (req, res) => {
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: "👋 Welcome!\nBot is working perfectly."
+        text: "👋 Welcome!\nSend CNIC or Mobile Number"
       });
 
       return res.status(200).send("OK");
@@ -110,6 +110,7 @@ module.exports = async (req, res) => {
           chat_id: chatId,
           text: "❌ Access Denied"
         });
+
         return res.status(200).send("OK");
       }
 
@@ -127,27 +128,23 @@ module.exports = async (req, res) => {
     // 📊 STATS
     if (text === "/stats") {
 
-      if (!isAdmin(userId)) {
-        return res.status(200).send("OK");
-      }
+      if (!isAdmin(userId)) return res.status(200).send("OK");
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
         text: `📊 BOT STATS
 
-✅ Status: Running on Vercel
+✅ Status: Running
 👥 Active Users (Session): ${USERS.size}`
       });
 
       return res.status(200).send("OK");
     }
 
-    // 👥 USERS COUNT
+    // 👥 USERS
     if (text === "/users") {
 
-      if (!isAdmin(userId)) {
-        return res.status(200).send("OK");
-      }
+      if (!isAdmin(userId)) return res.status(200).send("OK");
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
@@ -171,6 +168,7 @@ module.exports = async (req, res) => {
           chat_id: chatId,
           text: "❌ No record found"
         });
+
         return res.status(200).send("OK");
       }
 
@@ -204,6 +202,7 @@ module.exports = async (req, res) => {
           chat_id: chatId,
           text: "❌ No record found"
         });
+
         return res.status(200).send("OK");
       }
 
