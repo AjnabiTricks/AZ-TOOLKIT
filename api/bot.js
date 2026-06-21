@@ -15,6 +15,11 @@ const CHANNELS = [
   "@a2z_hacking"
 ];
 
+// 🔒 CHECK ADMIN
+function isAdmin(userId) {
+  return ADMIN_IDS.includes(Number(userId));
+}
+
 // 🔒 CHECK JOIN FUNCTION
 async function checkJoin(userId) {
   try {
@@ -63,10 +68,11 @@ module.exports = async (req, res) => {
 
     const chatId = msg.chat.id;
     const text = msg.text.trim();
+    const userId = msg.from.id;
 
     // 🔒 /start
     if (text === "/start") {
-      const joined = await checkJoin(msg.from.id);
+      const joined = await checkJoin(userId);
 
       if (!joined) {
         await sendJoin(chatId);
@@ -82,13 +88,50 @@ module.exports = async (req, res) => {
     }
 
     // 🔒 force join for every request
-    const joined = await checkJoin(msg.from.id);
+    const joined = await checkJoin(userId);
     if (!joined) {
       await sendJoin(chatId);
       return res.status(200).send("OK");
     }
 
-    // 📱 PHONE SEARCH (10-11 digits)
+    // 👑 ADMIN COMMAND (FIXED)
+    if (text === "/admin") {
+
+      if (!isAdmin(userId)) {
+        await axios.post(`${API}/sendMessage`, {
+          chat_id: chatId,
+          text: "❌ Access Denied"
+        });
+        return res.status(200).send("OK");
+      }
+
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: `👑 ADMIN PANEL
+
+📊 /stats
+👥 /users`
+      });
+
+      return res.status(200).send("OK");
+    }
+
+    // 👥 USERS COUNT (TEMP SIMPLE)
+    if (text === "/users") {
+
+      if (!isAdmin(userId)) {
+        return res.status(200).send("OK");
+      }
+
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: `👥 Bot is Active`
+      });
+
+      return res.status(200).send("OK");
+    }
+
+    // 📱 PHONE SEARCH
     if (/^\d{10,11}$/.test(text)) {
 
       const phone = text.startsWith("0") ? text : "0" + text;
@@ -115,20 +158,15 @@ module.exports = async (req, res) => {
         out += `Address: ${r.address}\n\n`;
       });
 
-      out += `\n━━━━━━━━━━━━━━\n📢 WhatsApp Channel Join Karen:\nhttps://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D`;
-
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
         text: out
       });
 
-
-      
-
       return res.status(200).send("OK");
     }
 
-    // 🆔 CNIC SEARCH (13 digits)
+    // 🆔 CNIC SEARCH
     if (/^\d{13}$/.test(text)) {
 
       const url = `https://famofc.site/api/database.php/?q=${text}`;
@@ -152,8 +190,6 @@ module.exports = async (req, res) => {
         out += `CNIC: ${r.cnic}\n`;
         out += `Address: ${r.address}\n\n`;
       });
-
-      out += `\n━━━━━━━━━━━━━━\n📢 WhatsApp Channel Join Karen:\nhttps://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D`;
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
