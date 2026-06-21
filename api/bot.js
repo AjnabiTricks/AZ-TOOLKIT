@@ -11,7 +11,7 @@ const ADMIN_IDS = [
   6343143457
 ];
 
-// 👥 USERS (session based)
+// 👥 USERS
 const USERS = new Set();
 
 function isAdmin(id) {
@@ -60,7 +60,13 @@ async function sendJoin(chatId) {
   });
 }
 
-// 🚀 BOT MAIN
+// 📢 FOOTER MESSAGE (NEW)
+const FOOTER = `
+━━━━━━━━━━━━━━
+📢 WhatsApp Channel Join Karen:
+https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D
+`;
+
 module.exports = async (req, res) => {
   try {
 
@@ -75,10 +81,8 @@ module.exports = async (req, res) => {
     const text = msg.text.trim();
     const userId = msg.from.id;
 
-    // 👥 TRACK USERS
     USERS.add(userId);
 
-    // 🔒 FORCE JOIN CHECK
     const joined = await checkJoin(userId);
 
     if (text !== "/start" && !joined) {
@@ -102,7 +106,7 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // 👑 ADMIN PANEL
+    // 👑 ADMIN
     if (text === "/admin") {
 
       if (!isAdmin(userId)) {
@@ -133,8 +137,8 @@ module.exports = async (req, res) => {
         chat_id: chatId,
         text: `📊 BOT STATS
 
-👥 Active Users (Session): ${USERS.size}
-⚡ Status: Running on Vercel`
+👥 Users: ${USERS.size}
+⚡ Status: Active`
       });
 
       return res.status(200).send("OK");
@@ -147,7 +151,7 @@ module.exports = async (req, res) => {
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: `👥 Total Users (Session): ${USERS.size}`
+        text: `👥 Total Users: ${USERS.size}`
       });
 
       return res.status(200).send("OK");
@@ -180,6 +184,8 @@ module.exports = async (req, res) => {
         out += `Address: ${r.address}\n\n`;
       });
 
+      out += FOOTER;
+
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
         text: out
@@ -194,20 +200,19 @@ module.exports = async (req, res) => {
       const url1 = `https://famofc.site/api/database.php/?q=${text}`;
       const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${text}`;
 
-      const [resp1, resp2] = await Promise.all([
+      const [r1, r2] = await Promise.all([
         axios.get(url1).catch(() => null),
         axios.get(url2).catch(() => null)
       ]);
 
-      const data1 = resp1?.data;
-      const data2 = resp2?.data;
+      const data1 = r1?.data;
+      const data2 = r2?.data;
 
       let out = "🆔 CNIC RESULT (COMBINED)\n\n";
 
       // SOURCE 1
       if (data1?.success && data1.data.records.length > 0) {
-
-        out += "🔵 SIM DETAILS\n\n";
+        out += "🔵 SOURCE 1\n\n";
 
         data1.data.records.forEach((r, i) => {
           out += `Record ${i + 1}\n`;
@@ -216,15 +221,13 @@ module.exports = async (req, res) => {
           out += `CNIC: ${r.cnic}\n`;
           out += `Address: ${r.address}\n\n`;
         });
-
       } else {
-        out += "🔵 SIM DETAILS: No Record Found\n\n";
+        out += "🔵 SOURCE 1: No Record Found\n\n";
       }
 
-      // NADRA
+      // SOURCE 2
       if (Array.isArray(data2) && data2.length > 0) {
-
-        out += "🟢 NADRA\n\n";
+        out += "🟢 SOURCE 2\n\n";
 
         data2.forEach((r, i) => {
           out += `Record ${i + 1}\n`;
@@ -234,10 +237,12 @@ module.exports = async (req, res) => {
           out += `Permanent Address: ${r.PERMANANT_ADDRESS}\n`;
           out += `Status: ${r.STATUS}\n\n`;
         });
-
       } else {
-        out += "🟢 NADRA: No Record Found\n\n";
+        out += "🟢 SOURCE 2: No Record Found\n\n";
       }
+
+      // 📢 FOOTER ADDED HERE
+      out += FOOTER;
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
