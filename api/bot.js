@@ -207,7 +207,7 @@ module.exports = async (req, res) => {
       // SOURCE 1
       if (data1?.success && data1.data.records.length > 0) {
 
-        out += "🔵 SOURCE 1\n\n";
+        out += "🔵 SIM DETAILS\n\n";
 
         data1.data.records.forEach((r, i) => {
           out += `Record ${i + 1}\n`;
@@ -218,13 +218,13 @@ module.exports = async (req, res) => {
         });
 
       } else {
-        out += "🔵 SOURCE 1: No Record Found\n\n";
+        out += "🔵 SIM DETAILS: No Record Found\n\n";
       }
 
-      // SOURCE 2
+      // NADRA
       if (Array.isArray(data2) && data2.length > 0) {
 
-        out += "🟢 SOURCE 2\n\n";
+        out += "🟢 NADRA\n\n";
 
         data2.forEach((r, i) => {
           out += `Record ${i + 1}\n`;
@@ -236,7 +236,7 @@ module.exports = async (req, res) => {
         });
 
       } else {
-        out += "🟢 SOURCE 2: No Record Found\n\n";
+        out += "🟢 NADRA: No Record Found\n\n";
       }
 
       await axios.post(`${API}/sendMessage`, {
