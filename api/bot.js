@@ -60,7 +60,7 @@ async function sendJoin(chatId) {
   });
 }
 
-// 🚀 MAIN BOT
+// 🚀 BOT MAIN
 module.exports = async (req, res) => {
   try {
 
@@ -86,7 +86,7 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // 🔹 START FIXED
+    // 🔹 START
     if (text === "/start") {
 
       if (!joined) {
@@ -110,7 +110,6 @@ module.exports = async (req, res) => {
           chat_id: chatId,
           text: "❌ Access Denied"
         });
-
         return res.status(200).send("OK");
       }
 
@@ -134,8 +133,8 @@ module.exports = async (req, res) => {
         chat_id: chatId,
         text: `📊 BOT STATS
 
-✅ Status: Running
-👥 Active Users (Session): ${USERS.size}`
+👥 Active Users (Session): ${USERS.size}
+⚡ Status: Running on Vercel`
       });
 
       return res.status(200).send("OK");
@@ -168,7 +167,6 @@ module.exports = async (req, res) => {
           chat_id: chatId,
           text: "❌ No record found"
         });
-
         return res.status(200).send("OK");
       }
 
@@ -190,31 +188,56 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // 🆔 CNIC SEARCH
+    // 🆔 CNIC SEARCH (DUAL API)
     if (/^\d{13}$/.test(text)) {
 
-      const url = `https://famofc.site/api/database.php/?q=${text}`;
-      const resp = await axios.get(url);
-      const data = resp.data;
+      const url1 = `https://famofc.site/api/database.php/?q=${text}`;
+      const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${text}`;
 
-      if (!data.success) {
-        await axios.post(`${API}/sendMessage`, {
-          chat_id: chatId,
-          text: "❌ No record found"
+      const [resp1, resp2] = await Promise.all([
+        axios.get(url1).catch(() => null),
+        axios.get(url2).catch(() => null)
+      ]);
+
+      const data1 = resp1?.data;
+      const data2 = resp2?.data;
+
+      let out = "🆔 CNIC RESULT (COMBINED)\n\n";
+
+      // SOURCE 1
+      if (data1?.success && data1.data.records.length > 0) {
+
+        out += "🔵 SOURCE 1\n\n";
+
+        data1.data.records.forEach((r, i) => {
+          out += `Record ${i + 1}\n`;
+          out += `Name: ${r.full_name}\n`;
+          out += `Phone: ${r.phone}\n`;
+          out += `CNIC: ${r.cnic}\n`;
+          out += `Address: ${r.address}\n\n`;
         });
 
-        return res.status(200).send("OK");
+      } else {
+        out += "🔵 SOURCE 1: No Record Found\n\n";
       }
 
-      let out = "🆔 CNIC RESULT\n\n";
+      // SOURCE 2
+      if (Array.isArray(data2) && data2.length > 0) {
 
-      data.data.records.forEach((r, i) => {
-        out += `Record ${i + 1}\n`;
-        out += `Name: ${r.full_name}\n`;
-        out += `Phone: ${r.phone}\n`;
-        out += `CNIC: ${r.cnic}\n`;
-        out += `Address: ${r.address}\n\n`;
-      });
+        out += "🟢 SOURCE 2\n\n";
+
+        data2.forEach((r, i) => {
+          out += `Record ${i + 1}\n`;
+          out += `Name: ${r.NAME}\n`;
+          out += `CNIC: ${r.IDENTIFICATION_NO}\n`;
+          out += `Present Address: ${r.PRESENT_ADDRESS}\n`;
+          out += `Permanent Address: ${r.PERMANANT_ADDRESS}\n`;
+          out += `Status: ${r.STATUS}\n\n`;
+        });
+
+      } else {
+        out += "🟢 SOURCE 2: No Record Found\n\n";
+      }
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
