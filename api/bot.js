@@ -210,9 +210,9 @@ module.exports = async (req, res) => {
 
       let out = "🆔 CNIC RESULT (COMBINED)\n\n";
 
-      // SOURCE 1
+      // SIM INFORMATIONS
       if (data1?.success && data1.data.records.length > 0) {
-        out += "🔵 SOURCE 1\n\n";
+        out += "🔵 SIM INFORMATION\n\n";
 
         data1.data.records.forEach((r, i) => {
           out += `Record ${i + 1}\n`;
@@ -222,12 +222,12 @@ module.exports = async (req, res) => {
           out += `Address: ${r.address}\n\n`;
         });
       } else {
-        out += "🔵 SOURCE 1: No Record Found\n\n";
+        out += "🔵 SIM INFORMATION: No Record Found\n\n";
       }
 
-      // SOURCE 2
+      // NADRA ADDRESS
       if (Array.isArray(data2) && data2.length > 0) {
-        out += "🟢 SOURCE 2\n\n";
+        out += "🟢 NADRA ADDRESS\n\n";
 
         data2.forEach((r, i) => {
           out += `Record ${i + 1}\n`;
@@ -238,7 +238,7 @@ module.exports = async (req, res) => {
           out += `Status: ${r.STATUS}\n\n`;
         });
       } else {
-        out += "🟢 SOURCE 2: No Record Found\n\n";
+        out += "🟢 NADRA ADDRESS: No Record Found\n\n";
       }
 
       // 📢 FOOTER ADDED HERE
