@@ -1,8 +1,7 @@
 const axios = require("axios");
 
-// 🔐 BOT TOKEN
+// 🔐 BOT TOKEN (DIRECT IN FILE)
 const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
-const TOKEN = process.env.BOT_TOKEN;
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
 // 👑 ADMINS
@@ -16,10 +15,9 @@ function isAdmin(id) {
   return ADMIN_IDS.includes(Number(id));
 }
 
-// 👥 TEMP USER STORE (RESET ON REDEPLOY)
+// 👥 TEMP USER STORE
 const USERS = new Set();
 
-// 🚀 MAIN HANDLER
 module.exports = async (req, res) => {
   try {
 
@@ -35,6 +33,77 @@ module.exports = async (req, res) => {
 
     // 👥 STORE USER
     USERS.add(msg.from.id);
+
+    // 🔹 START
+    if (text === "/start") {
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: "👋 Welcome!\nBot is working perfectly."
+      });
+
+      return res.status(200).send("OK");
+    }
+
+    // 👑 ADMIN PANEL
+    if (text === "/admin") {
+
+      if (!isAdmin(msg.from.id)) {
+        await axios.post(`${API}/sendMessage`, {
+          chat_id: chatId,
+          text: "❌ Access Denied"
+        });
+
+        return res.status(200).send("OK");
+      }
+
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: `👑 ADMIN PANEL
+
+📊 /users
+ℹ️ /status`
+      });
+
+      return res.status(200).send("OK");
+    }
+
+    // 👥 USER COUNT
+    if (text === "/users") {
+
+      if (!isAdmin(msg.from.id)) {
+        return res.status(200).send("OK");
+      }
+
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: `👥 Total Users (Session): ${USERS.size}`
+      });
+
+      return res.status(200).send("OK");
+    }
+
+    // ℹ️ STATUS
+    if (text === "/status") {
+
+      if (!isAdmin(msg.from.id)) {
+        return res.status(200).send("OK");
+      }
+
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: "✅ Bot Status: Running on Vercel"
+      });
+
+      return res.status(200).send("OK");
+    }
+
+    return res.status(200).send("OK");
+
+  } catch (e) {
+    console.log(e);
+    return res.status(200).send("OK");
+  }
+};    USERS.add(msg.from.id);
 
     // 🔹 START
     if (text === "/start") {
