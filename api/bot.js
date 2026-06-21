@@ -1,56 +1,24 @@
+const axios = require("axios");
+
+// 🔐 BOT TOKEN
+const TOKEN = process.env.8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I;
+const API = `https://api.telegram.org/bot${TOKEN}`;
+
+// 👑 ADMINS
 const ADMIN_IDS = [
   6581234524,
   7133052934,
   6343143457
 ];
 
-const axios = require("axios");
-
-const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
-const API = `https://api.telegram.org/bot${TOKEN}`;
-
-const CHANNELS = [
-  "@AZ_Tricks",
-  "@Hacking_Tricks0",
-  "@a2z_hacking"
-];
-
-// 🔒 CHECK JOIN FUNCTION
-async function checkJoin(userId) {
-  try {
-    for (const ch of CHANNELS) {
-      const res = await axios.get(
-        `${API}/getChatMember?chat_id=${ch}&user_id=${userId}`
-      );
-
-      const status = res.data.result.status;
-
-      if (!["member", "creator", "administrator"].includes(status)) {
-        return false;
-      }
-    }
-    return true;
-  } catch {
-    return false;
-  }
+function isAdmin(id) {
+  return ADMIN_IDS.includes(Number(id));
 }
 
-// 📢 FORCE JOIN MESSAGE
-async function sendJoin(chatId) {
-  return axios.post(`${API}/sendMessage`, {
-    chat_id: chatId,
-    text: "⚠️ Bot use karne ke liye pehle tamam channels join karein.",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "📢 AZ Tricks", url: "https://t.me/AZ_Tricks" }],
-        [{ text: "📢 Hacking Tricks", url: "https://t.me/Hacking_Tricks0" }],
-        [{ text: "📢 A2Z Hacking", url: "https://t.me/a2z_hacking" }],
-        [{ text: "✅ Check Join", callback_data: "check_join" }]
-      ]
-    }
-  });
-}
+// 👥 TEMP USER STORE (RESET ON REDEPLOY)
+const USERS = new Set();
 
+// 🚀 MAIN HANDLER
 module.exports = async (req, res) => {
   try {
 
@@ -64,103 +32,47 @@ module.exports = async (req, res) => {
     const chatId = msg.chat.id;
     const text = msg.text.trim();
 
-    // 🔒 /start
+    // 👥 STORE USER
+    USERS.add(msg.from.id);
+
+    // 🔹 START
     if (text === "/start") {
-      const joined = await checkJoin(msg.from.id);
-
-      if (!joined) {
-        await sendJoin(chatId);
-        return res.status(200).send("OK");
-      }
-
-      await axios.post(`${API}/sendMessage`, {
+      return axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: "👋 Welcome!\nSend CNIC or Mobile Number"
+        text: "👋 Welcome!\nBot is running successfully."
       });
-
-      return res.status(200).send("OK");
     }
 
-    // 🔒 force join for every request
-    const joined = await checkJoin(msg.from.id);
-    if (!joined) {
-      await sendJoin(chatId);
-      return res.status(200).send("OK");
-    }
+    // 👑 ADMIN PANEL
+    if (text === "/admin") {
 
-    // 📱 PHONE SEARCH (10-11 digits)
-    if (/^\d{10,11}$/.test(text)) {
-
-      const phone = text.startsWith("0") ? text : "0" + text;
-
-      const url = `https://famofc.site/api/database.php/?q=${phone}`;
-      const resp = await axios.get(url);
-      const data = resp.data;
-
-      if (!data.success) {
-        await axios.post(`${API}/sendMessage`, {
+      if (!isAdmin(msg.from.id)) {
+        return axios.post(`${API}/sendMessage`, {
           chat_id: chatId,
-          text: "❌ No record found"
+          text: "❌ Access Denied"
         });
-        return res.status(200).send("OK");
       }
 
-      let out = "📱 PHONE RESULT\n\n";
-
-      data.data.records.forEach((r, i) => {
-        out += `Record ${i + 1}\n`;
-        out += `Name: ${r.full_name}\n`;
-        out += `Phone: ${r.phone}\n`;
-        out += `CNIC: ${r.cnic}\n`;
-        out += `Address: ${r.address}\n\n`;
-      });
-
-      out += `\n━━━━━━━━━━━━━━\n📢 WhatsApp Channel Join Karen:\nhttps://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D`;
-
-      await axios.post(`${API}/sendMessage`, {
+      return axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: out
+        text: `👑 ADMIN PANEL
+
+📊 /users
+ℹ️ Bot Status: Online`
       });
-
-
-      
-
-      return res.status(200).send("OK");
     }
 
-    // 🆔 CNIC SEARCH (13 digits)
-    if (/^\d{13}$/.test(text)) {
+    // 👥 USER COUNT
+    if (text === "/users") {
 
-      const url = `https://famofc.site/api/database.php/?q=${text}`;
-      const resp = await axios.get(url);
-      const data = resp.data;
-
-      if (!data.success) {
-        await axios.post(`${API}/sendMessage`, {
-          chat_id: chatId,
-          text: "❌ No record found"
-        });
+      if (!isAdmin(msg.from.id)) {
         return res.status(200).send("OK");
       }
 
-      let out = "🆔 CNIC RESULT\n\n";
-
-      data.data.records.forEach((r, i) => {
-        out += `Record ${i + 1}\n`;
-        out += `Name: ${r.full_name}\n`;
-        out += `Phone: ${r.phone}\n`;
-        out += `CNIC: ${r.cnic}\n`;
-        out += `Address: ${r.address}\n\n`;
-      });
-
-      out += `\n━━━━━━━━━━━━━━\n📢 WhatsApp Channel Join Karen:\nhttps://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D`;
-
-      await axios.post(`${API}/sendMessage`, {
+      return axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: out
+        text: `👥 Total Users (Session): ${USERS.size}`
       });
-
-      return res.status(200).send("OK");
     }
 
     return res.status(200).send("OK");
