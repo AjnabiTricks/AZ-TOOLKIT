@@ -1,6 +1,7 @@
 const axios = require("axios");
 
 // 🔐 BOT TOKEN
+const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
 const TOKEN = process.env.BOT_TOKEN;
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
