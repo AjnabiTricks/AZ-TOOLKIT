@@ -11,7 +11,7 @@ const ADMIN_IDS = [
   6343143457
 ];
 
-// 👥 USERS (NOTE: memory only, reset on restart)
+// 👥 USERS (RAM based)
 const USERS = new Set();
 
 function isAdmin(id) {
@@ -32,6 +32,7 @@ async function checkJoin(userId) {
       const res = await axios.get(
         `${API}/getChatMember?chat_id=${ch}&user_id=${userId}`
       );
+
       const status = res.data.result.status;
 
       if (!["member", "creator", "administrator"].includes(status)) {
@@ -53,8 +54,7 @@ async function sendJoin(chatId) {
       inline_keyboard: [
         [{ text: "📢 AZ Tricks", url: "https://t.me/AZ_Tricks" }],
         [{ text: "📢 Hacking Tricks", url: "https://t.me/Hacking_Tricks0" }],
-        [{ text: "📢 A2Z Hacking", url: "https://t.me/a2z_hacking" }],
-        [{ text: "✅ Check Join", callback_data: "check_join" }]
+        [{ text: "📢 A2Z Hacking", url: "https://t.me/a2z_hacking" }]
       ]
     }
   });
@@ -67,6 +67,17 @@ const FOOTER = `
 https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D
 `;
 
+// 🔹 SAFE SENDER (long message splitter)
+async function sendLong(chatId, text) {
+  const chunks = text.match(/[\s\S]{1,3500}/g) || [];
+  for (const chunk of chunks) {
+    await axios.post(`${API}/sendMessage`, {
+      chat_id: chatId,
+      text: chunk
+    });
+  }
+}
+
 module.exports = async (req, res) => {
   try {
 
@@ -74,8 +85,10 @@ module.exports = async (req, res) => {
     if (!body) return res.status(200).send("OK");
     if (typeof body === "string") body = JSON.parse(body);
 
-    // ================= CALLBACK (CHECK JOIN BUTTON)
+    const msg = body.message;
     const callback = body.callback_query;
+
+    // ================= CALLBACK (CHECK JOIN BUTTON)
     if (callback) {
       const userId = callback.from.id;
       const chatId = callback.message.chat.id;
@@ -85,7 +98,7 @@ module.exports = async (req, res) => {
       if (joined) {
         await axios.post(`${API}/answerCallbackQuery`, {
           callback_query_id: callback.id,
-          text: "✅ Verified!"
+          text: "✅ Verified"
         });
 
         await axios.post(`${API}/sendMessage`, {
@@ -96,7 +109,7 @@ module.exports = async (req, res) => {
       } else {
         await axios.post(`${API}/answerCallbackQuery`, {
           callback_query_id: callback.id,
-          text: "❌ Join all channels first",
+          text: "❌ Pehle channels join karein",
           show_alert: true
         });
       }
@@ -104,7 +117,6 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    const msg = body.message;
     if (!msg || !msg.text) return res.status(200).send("OK");
 
     const chatId = msg.chat.id;
@@ -122,14 +134,17 @@ module.exports = async (req, res) => {
 
     // ================= START
     if (text === "/start") {
+      if (!joined) return await sendJoin(chatId);
+
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
         text: "👋 Welcome!\nSend CNIC or Mobile Number"
       });
+
       return res.status(200).send("OK");
     }
 
-    // ================= ADMIN
+    // ================= ADMIN PANEL
     if (text === "/admin") {
       if (!isAdmin(userId)) {
         await axios.post(`${API}/sendMessage`, {
@@ -207,26 +222,20 @@ module.exports = async (req, res) => {
 
       out += FOOTER;
 
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: out
-      });
-
+      await sendLong(chatId, out);
       return res.status(200).send("OK");
     }
 
-    // ================= CNIC SEARCH (3 APIs COMBINED)
+    // ================= CNIC SEARCH (FULL RAW MULTI API)
     if (/^\d{13}$/.test(text)) {
 
       const url1 = `https://famofc.site/api/database.php/?q=${text}`;
-
       const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${text}`;
 
-      // 🔥 NEW REGISTRY API
       const url3 = `https://rodb.pulse.gop.pk/registry_index_3/_msearch`;
 
-      const payload = [
-        JSON.stringify({ index: "registry_index_3" }),
+      const payload =
+        JSON.stringify({ index: "registry_index_3" }) + "\n" +
         JSON.stringify({
           query: {
             bool: {
@@ -244,70 +253,30 @@ module.exports = async (req, res) => {
               ]
             }
           },
-          size: 5
-        })
-      ].join("\n") + "\n";
+          size: 20
+        }) + "\n";
 
       const [r1, r2, r3] = await Promise.all([
-        axios.get(url1).catch(() => null),
-        axios.get(url2).catch(() => null),
+        axios.get(url1).catch(e => ({ error: e.message })),
+        axios.get(url2).catch(e => ({ error: e.message })),
         axios.post(url3, payload, {
           headers: {
             "Authorization": "Basic cmVhZF9vbmx5X3VzZXJfdjI6cmVhZG9ubHlfMTIz",
             "Content-Type": "application/json"
           }
-        }).catch(() => null)
+        }).catch(e => ({ error: e.message }))
       ]);
 
-      const data1 = r1?.data;
-      const data2 = r2?.data;
-      const data3 = r3?.data;
+      const combined = {
+        SIM_API: r1?.data || r1,
+        NADRA_API: r2?.data || r2,
+        REGISTRY_API: r3?.data || r3
+      };
 
-      let out = "🆔 CNIC FULL REPORT\n\n";
+      let out = "🆔 FULL CNIC RAW DATA\n\n";
+      out += JSON.stringify(combined, null, 2);
 
-      // SIM
-      if (data1?.success) {
-        out += "🔵 SIM INFO\n";
-        data1.data.records.forEach(r => {
-          out += `${r.full_name} | ${r.phone}\n`;
-        });
-        out += "\n";
-      }
-
-      // NADRA
-      if (Array.isArray(data2)) {
-        out += "🟢 NADRA INFO\n";
-        data2.forEach(r => {
-          out += `${r.NAME} | ${r.IDENTIFICATION_NO}\n`;
-        });
-        out += "\n";
-      }
-
-      // REGISTRY
-      const hits = data3?.data?.responses?.[0]?.hits?.hits;
-
-      if (hits && hits.length > 0) {
-        out += "🟣 LAND RECORDS\n\n";
-
-        hits.forEach((h, i) => {
-          const d = h._source;
-
-          out += `Record ${i + 1}\n`;
-          out += `Registry: ${d.RegisteredNumber}\n`;
-          out += `Tehsil: ${d.Tehsil}\n`;
-          out += `Date: ${d.RegistryDate}\n`;
-          out += `Property: ${d.PropertyNumber}\n\n`;
-        });
-      } else {
-        out += "🟣 LAND RECORDS: No Data Found\n\n";
-      }
-
-      out += FOOTER;
-
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: out
-      });
+      await sendLong(chatId, out);
 
       return res.status(200).send("OK");
     }
