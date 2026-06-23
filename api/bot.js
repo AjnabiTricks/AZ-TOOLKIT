@@ -11,7 +11,7 @@ const ADMIN_IDS = [
   6343143457
 ];
 
-// 👥 USERS
+// 👥 USERS (NOTE: memory only, reset on restart)
 const USERS = new Set();
 
 function isAdmin(id) {
@@ -32,7 +32,6 @@ async function checkJoin(userId) {
       const res = await axios.get(
         `${API}/getChatMember?chat_id=${ch}&user_id=${userId}`
       );
-
       const status = res.data.result.status;
 
       if (!["member", "creator", "administrator"].includes(status)) {
@@ -61,7 +60,7 @@ async function sendJoin(chatId) {
   });
 }
 
-// 📢 FOOTER MESSAGE (NEW)
+// 📢 FOOTER
 const FOOTER = `
 ━━━━━━━━━━━━━━
 📢 WhatsApp Channel Join Karen:
@@ -75,39 +74,35 @@ module.exports = async (req, res) => {
     if (!body) return res.status(200).send("OK");
     if (typeof body === "string") body = JSON.parse(body);
 
-const callback = body.callback_query;
+    // ================= CALLBACK (CHECK JOIN BUTTON)
+    const callback = body.callback_query;
+    if (callback) {
+      const userId = callback.from.id;
+      const chatId = callback.message.chat.id;
 
-if (callback) {
+      const joined = await checkJoin(userId);
 
-  const userId = callback.from.id;
-  const chatId = callback.message.chat.id;
+      if (joined) {
+        await axios.post(`${API}/answerCallbackQuery`, {
+          callback_query_id: callback.id,
+          text: "✅ Verified!"
+        });
 
-  const joined = await checkJoin(userId);
+        await axios.post(`${API}/sendMessage`, {
+          chat_id: chatId,
+          text: "👋 Welcome!\nSend CNIC or Mobile Number"
+        });
 
-  if (joined) {
+      } else {
+        await axios.post(`${API}/answerCallbackQuery`, {
+          callback_query_id: callback.id,
+          text: "❌ Join all channels first",
+          show_alert: true
+        });
+      }
 
-    await axios.post(`${API}/answerCallbackQuery`, {
-      callback_query_id: callback.id,
-      text: "✅ All channels joined!"
-    });
-
-    await axios.post(`${API}/sendMessage`, {
-      chat_id: chatId,
-      text: "👋 Welcome!\nSend CNIC or Mobile Number"
-    });
-
-  } else {
-
-    await axios.post(`${API}/answerCallbackQuery`, {
-      callback_query_id: callback.id,
-      text: "❌ Pehle tamam channels join karein.",
-      show_alert: true
-    });
-
-  }
-
-  return res.status(200).send("OK");
-}
+      return res.status(200).send("OK");
+    }
 
     const msg = body.message;
     if (!msg || !msg.text) return res.status(200).send("OK");
@@ -125,25 +120,17 @@ if (callback) {
       return res.status(200).send("OK");
     }
 
-    // 🔹 START
+    // ================= START
     if (text === "/start") {
-
-      if (!joined) {
-        await sendJoin(chatId);
-        return res.status(200).send("OK");
-      }
-
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
         text: "👋 Welcome!\nSend CNIC or Mobile Number"
       });
-
       return res.status(200).send("OK");
     }
 
-    // 👑 ADMIN
+    // ================= ADMIN
     if (text === "/admin") {
-
       if (!isAdmin(userId)) {
         await axios.post(`${API}/sendMessage`, {
           chat_id: chatId,
@@ -163,9 +150,8 @@ if (callback) {
       return res.status(200).send("OK");
     }
 
-    // 📊 STATS
+    // ================= STATS
     if (text === "/stats") {
-
       if (!isAdmin(userId)) return res.status(200).send("OK");
 
       await axios.post(`${API}/sendMessage`, {
@@ -179,9 +165,8 @@ if (callback) {
       return res.status(200).send("OK");
     }
 
-    // 👥 USERS
+    // ================= USERS
     if (text === "/users") {
-
       if (!isAdmin(userId)) return res.status(200).send("OK");
 
       await axios.post(`${API}/sendMessage`, {
@@ -192,16 +177,17 @@ if (callback) {
       return res.status(200).send("OK");
     }
 
-    // 📱 PHONE SEARCH
+    // ================= PHONE SEARCH
     if (/^\d{10,11}$/.test(text)) {
 
       const phone = text.startsWith("0") ? text : "0" + text;
 
       const url = `https://famofc.site/api/database.php/?q=${phone}`;
-      const resp = await axios.get(url);
-      const data = resp.data;
+      const resp = await axios.get(url).catch(() => null);
 
-      if (!data.success) {
+      const data = resp?.data;
+
+      if (!data?.success) {
         await axios.post(`${API}/sendMessage`, {
           chat_id: chatId,
           text: "❌ No record found"
@@ -229,54 +215,93 @@ if (callback) {
       return res.status(200).send("OK");
     }
 
-    // 🆔 CNIC SEARCH (DUAL API)
+    // ================= CNIC SEARCH (3 APIs COMBINED)
     if (/^\d{13}$/.test(text)) {
 
       const url1 = `https://famofc.site/api/database.php/?q=${text}`;
+
       const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${text}`;
 
-      const [r1, r2] = await Promise.all([
+      // 🔥 NEW REGISTRY API
+      const url3 = `https://rodb.pulse.gop.pk/registry_index_3/_msearch`;
+
+      const payload = [
+        JSON.stringify({ index: "registry_index_3" }),
+        JSON.stringify({
+          query: {
+            bool: {
+              must: [
+                {
+                  nested: {
+                    path: "RegistryParties",
+                    query: {
+                      match: {
+                        "RegistryParties.CNIC": text
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          size: 5
+        })
+      ].join("\n") + "\n";
+
+      const [r1, r2, r3] = await Promise.all([
         axios.get(url1).catch(() => null),
-        axios.get(url2).catch(() => null)
+        axios.get(url2).catch(() => null),
+        axios.post(url3, payload, {
+          headers: {
+            "Authorization": "Basic cmVhZF9vbmx5X3VzZXJfdjI6cmVhZG9ubHlfMTIz",
+            "Content-Type": "application/json"
+          }
+        }).catch(() => null)
       ]);
 
       const data1 = r1?.data;
       const data2 = r2?.data;
+      const data3 = r3?.data;
 
-      let out = "🆔 CNIC RESULT (COMBINED)\n\n";
+      let out = "🆔 CNIC FULL REPORT\n\n";
 
-      // SIM INFORMATIONS
-      if (data1?.success && data1.data.records.length > 0) {
-        out += "🔵 SIM INFORMATION\n\n";
-
-        data1.data.records.forEach((r, i) => {
-          out += `Record ${i + 1}\n`;
-          out += `Name: ${r.full_name}\n`;
-          out += `Phone: ${r.phone}\n`;
-          out += `CNIC: ${r.cnic}\n`;
-          out += `Address: ${r.address}\n\n`;
+      // SIM
+      if (data1?.success) {
+        out += "🔵 SIM INFO\n";
+        data1.data.records.forEach(r => {
+          out += `${r.full_name} | ${r.phone}\n`;
         });
-      } else {
-        out += "🔵 SIM INFORMATION: No Record Found\n\n";
+        out += "\n";
       }
 
-      // NADRA ADDRESS
-      if (Array.isArray(data2) && data2.length > 0) {
-        out += "🟢 NADRA ADDRESS\n\n";
-
-        data2.forEach((r, i) => {
-          out += `Record ${i + 1}\n`;
-          out += `Name: ${r.NAME}\n`;
-          out += `CNIC: ${r.IDENTIFICATION_NO}\n`;
-          out += `Present Address: ${r.PRESENT_ADDRESS}\n`;
-          out += `Permanent Address: ${r.PERMANANT_ADDRESS}\n`;
-          out += `Status: ${r.STATUS}\n\n`;
+      // NADRA
+      if (Array.isArray(data2)) {
+        out += "🟢 NADRA INFO\n";
+        data2.forEach(r => {
+          out += `${r.NAME} | ${r.IDENTIFICATION_NO}\n`;
         });
-      } else {
-        out += "🟢 NADRA ADDRESS: No Record Found\n\n";
+        out += "\n";
       }
 
-      // 📢 FOOTER ADDED HERE
+      // REGISTRY
+      const hits = data3?.data?.responses?.[0]?.hits?.hits;
+
+      if (hits && hits.length > 0) {
+        out += "🟣 LAND RECORDS\n\n";
+
+        hits.forEach((h, i) => {
+          const d = h._source;
+
+          out += `Record ${i + 1}\n`;
+          out += `Registry: ${d.RegisteredNumber}\n`;
+          out += `Tehsil: ${d.Tehsil}\n`;
+          out += `Date: ${d.RegistryDate}\n`;
+          out += `Property: ${d.PropertyNumber}\n\n`;
+        });
+      } else {
+        out += "🟣 LAND RECORDS: No Data Found\n\n";
+      }
+
       out += FOOTER;
 
       await axios.post(`${API}/sendMessage`, {
