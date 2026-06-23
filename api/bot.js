@@ -54,7 +54,8 @@ async function sendJoin(chatId) {
       inline_keyboard: [
         [{ text: "📢 AZ Tricks", url: "https://t.me/AZ_Tricks" }],
         [{ text: "📢 Hacking Tricks", url: "https://t.me/Hacking_Tricks0" }],
-        [{ text: "📢 A2Z Hacking", url: "https://t.me/a2z_hacking" }]
+        [{ text: "📢 A2Z Hacking", url: "https://t.me/a2z_hacking" }],
+        [{ text: "✅ Check Join", callback_data: "check_join" }]
       ]
     }
   });
@@ -73,6 +74,40 @@ module.exports = async (req, res) => {
     let body = req.body;
     if (!body) return res.status(200).send("OK");
     if (typeof body === "string") body = JSON.parse(body);
+
+const callback = body.callback_query;
+
+if (callback) {
+
+  const userId = callback.from.id;
+  const chatId = callback.message.chat.id;
+
+  const joined = await checkJoin(userId);
+
+  if (joined) {
+
+    await axios.post(`${API}/answerCallbackQuery`, {
+      callback_query_id: callback.id,
+      text: "✅ All channels joined!"
+    });
+
+    await axios.post(`${API}/sendMessage`, {
+      chat_id: chatId,
+      text: "👋 Welcome!\nSend CNIC or Mobile Number"
+    });
+
+  } else {
+
+    await axios.post(`${API}/answerCallbackQuery`, {
+      callback_query_id: callback.id,
+      text: "❌ Pehle tamam channels join karein.",
+      show_alert: true
+    });
+
+  }
+
+  return res.status(200).send("OK");
+}
 
     const msg = body.message;
     if (!msg || !msg.text) return res.status(200).send("OK");
