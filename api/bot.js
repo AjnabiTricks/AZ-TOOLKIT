@@ -129,7 +129,6 @@ function formatLAND(data, cnic) {
 
   return out;
 }
-}
 
 // ================= MAIN =================
 
