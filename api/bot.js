@@ -214,45 +214,41 @@ module.exports = async (req, res) => {
 
       // LAND RECORD FIXED
       const registryUrl = `https://rodb.pulse.gop.pk/registry_index_3/_msearch`;
+const registryUrl = `https://rodb.pulse.gop.pk/registry_index_3/_msearch`;
 
-      const payload =
-        JSON.stringify({ index: "registry_index_3" }) + "\n" +
-        JSON.stringify({
-          query: {
-            bool: {
-              must: [
-                {
-                  nested: {
-                    path: "RegistryParties",
-                    query: {
-                      bool: {
-                        must: [
-                          {
-                            match_phrase: {
-                              "RegistryParties.CNIC": text
-                            }
-                          }
-                        ]
-                      }
-                    }
-                  }
+const payload =
+  JSON.stringify({ index: "registry_index_3" }) + "\n" +
+  JSON.stringify({
+    query: {
+      bool: {
+        must: [
+          {
+            nested: {
+              path: "RegistryParties",
+              query: {
+                match_phrase: {
+                  "RegistryParties.CNIC": text
                 }
-              ]
+              }
             }
-          },
-          size: 10
-        }) + "\n";
-
-      const [r1, r2, r3] = await Promise.all([
-        axios.get(url1).catch(() => null),
-        axios.get(url2).catch(() => null),
-        axios.post(registryUrl, payload, {
-          headers: {
-            "Authorization": "Basic cmVhZF9vbmx5X3VzZXJfdjI6cmVhZG9ubHlfMTIz",
-            "Content-Type": "application/json"
           }
-        }).catch(() => null)
-      ]);
+        ]
+      }
+    },
+    size: 10
+  }) + "\n";
+
+const r3 = await axios.post(registryUrl, payload, {
+  headers: {
+    "Authorization":
+      "Basic cmVhZF9vbmx5X3VzZXJfdjI6cmVhZG9ubHlfMTIz",
+    "Content-Type": "application/json"
+  }
+}).catch(() => null);
+
+// ✅ IMPORTANT FIX HERE
+const regHits =
+  r3?.data?.data?.responses?.[0]?.hits?.hits || [];
 
       const sim = r1?.data;
       const nadra = r2?.data;
