@@ -55,17 +55,17 @@ async function sendJoin(chatId) {
 // 📢 FOOTER
 const FOOTER = `
 ━━━━━━━━━━━━━━
-📢 WhatsApp Channel Join:
+📢 WhatsApp Channel:
 https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D
 `;
 
-// 📤 SAFE MESSAGE SENDER
+// 📤 SAFE SENDER
 async function sendLong(chatId, text) {
-  const parts = text.match(/[\s\S]{1,3500}/g) || [];
-  for (const p of parts) {
+  const chunks = text.match(/[\s\S]{1,3500}/g) || [];
+  for (const c of chunks) {
     await axios.post(`${API}/sendMessage`, {
       chat_id: chatId,
-      text: p
+      text: c
     });
   }
 }
@@ -206,53 +206,55 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // ================= CNIC FULL (SIM + NADRA + LAND)
+    // ================= CNIC FULL (SIM + NADRA + LAND FIXED)
     if (/^\d{13}$/.test(text)) {
 
       const url1 = `https://famofc.site/api/database.php/?q=${text}`;
       const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${text}`;
 
-      // LAND RECORD FIXED
-      const registryUrl = `https://rodb.pulse.gop.pk/registry_index_3/_msearch`;
-const registryUrl = `https://rodb.pulse.gop.pk/registry_index_3/_msearch`;
+      const registryUrl =
+        `https://rodb.pulse.gop.pk/registry_index_3/_msearch`;
 
-const payload =
-  JSON.stringify({ index: "registry_index_3" }) + "\n" +
-  JSON.stringify({
-    query: {
-      bool: {
-        must: [
-          {
-            nested: {
-              path: "RegistryParties",
-              query: {
-                match_phrase: {
-                  "RegistryParties.CNIC": text
+      const payload =
+        JSON.stringify({ index: "registry_index_3" }) + "\n" +
+        JSON.stringify({
+          query: {
+            bool: {
+              must: [
+                {
+                  nested: {
+                    path: "RegistryParties",
+                    query: {
+                      match_phrase: {
+                        "RegistryParties.CNIC": text
+                      }
+                    }
+                  }
                 }
-              }
+              ]
             }
+          },
+          size: 10
+        }) + "\n";
+
+      const [r1, r2, r3] = await Promise.all([
+        axios.get(url1).catch(() => null),
+        axios.get(url2).catch(() => null),
+        axios.post(registryUrl, payload, {
+          headers: {
+            "Authorization":
+              "Basic cmVhZF9vbmx5X3VzZXJfdjI6cmVhZG9ubHlfMTIz",
+            "Content-Type": "application/json"
           }
-        ]
-      }
-    },
-    size: 10
-  }) + "\n";
-
-const r3 = await axios.post(registryUrl, payload, {
-  headers: {
-    "Authorization":
-      "Basic cmVhZF9vbmx5X3VzZXJfdjI6cmVhZG9ubHlfMTIz",
-    "Content-Type": "application/json"
-  }
-}).catch(() => null);
-
-// ✅ IMPORTANT FIX HERE
-const regHits =
-  r3?.data?.data?.responses?.[0]?.hits?.hits || [];
+        }).catch(() => null)
+      ]);
 
       const sim = r1?.data;
       const nadra = r2?.data;
-      const regHits = r3?.data?.responses?.[0]?.hits?.hits || [];
+
+      // 🔥 FIXED LAND PARSING (MAIN FIX)
+      const regHits =
+        r3?.data?.data?.responses?.[0]?.hits?.hits || [];
 
       let out = "🆔 CNIC FULL REPORT\n\n";
 
@@ -274,6 +276,7 @@ const regHits =
 
       // LAND
       out += "🏡 LAND RECORDS\n\n";
+
       if (!regHits.length) {
         out += "No land record found\n";
       } else {
@@ -281,7 +284,7 @@ const regHits =
           const d = item._source;
 
           out += `📄 Record ${i + 1}\n`;
-          out += `🆔 ${d.Id}\n📜 ${d.RegisteredNumber}\n📍 ${d.Tehsil}\n🏘️ ${d.MauzaName}\n📅 ${d.RegistryDate}\n🏠 ${d.PropertyNumber}\n💰 ${d.RegistryValue}\n\n`;
+          out += `🆔 ${d.Id}\n📜 ${d.RegisteredNumber}\n📍 ${d.Tehsil || ""}\n🏘️ ${d.MauzaName || ""}\n📅 ${d.RegistryDate}\n🏠 ${d.PropertyNumber}\n💰 ${d.RegistryValue}\n\n`;
 
           (d.RegistryParties || []).forEach((p, j) => {
             out += `   ${j + 1}. ${p.Name} (${p.CNIC})\n`;
