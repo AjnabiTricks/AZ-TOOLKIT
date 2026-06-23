@@ -92,33 +92,43 @@ function formatNADRA(data) {
   return out;
 }
 
-function formatLAND(data) {
+function formatLAND(data, cnic) {
   const hits = data?.data?.responses?.[0]?.hits?.hits || [];
-  if (!hits.length) return "🏠 LAND: No Record Found\n";
 
-  let out = "🏠 LAND RECORDS\n";
+  if (!hits.length) {
+    return `🏠 LAND RECORD (CNIC: ${cnic})\n\n❌ No Record Found\n`;
+  }
+
+  let out = `🏠 LAND RECORD (CNIC: ${cnic})\n\n`;
 
   hits.forEach((h, i) => {
     const s = h._source;
 
-    out += `\nRecord ${i + 1}\n`;
-    out += `Registry #: ${s.RegisteredNumber || "N/A"}\n`;
+    out += `━━━━━━━━━━━━━━━━━━\n`;
+    out += `📌 Record #${i + 1}\n`;
+    out += `Registry No: ${s.RegisteredNumber || "N/A"}\n`;
     out += `Property: ${s.PropertyNumber || "N/A"}\n`;
+    out += `Type: ${s.RegistryType || "N/A"}\n`;   // <-- only raw type now
     out += `Date: ${s.RegistryDate || "N/A"}\n`;
     out += `Tehsil: ${s.Tehsil || "N/A"}\n`;
     out += `Address: ${s.Address || "N/A"}\n`;
     out += `Area: ${s.Area || "N/A"}\n`;
-    out += `Value: ${s.RegistryValue || "N/A"}\n`;
+    out += `Value: ${s.RegistryValue || "N/A"}\n\n`;
 
-    out += `\nParties:\n`;
-    (s.RegistryParties || []).forEach(p => {
-      out += `- ${p.Name} | ${p.CNIC}\n`;
+    out += `👥 Parties Details:\n`;
+
+    (s.RegistryParties || []).forEach((p, idx) => {
+      out += `  ${idx + 1})\n`;
+      out += `     Name: ${p.Name || "N/A"}\n`;
+      out += `     Father/Spouse: ${p.SpouseName || "N/A"}\n`;
+      out += `     CNIC: ${p.CNIC || "N/A"}\n\n`;
     });
 
-    out += `----------------------\n`;
+    out += `━━━━━━━━━━━━━━━━━━\n\n`;
   });
 
   return out;
+}
 }
 
 // ================= MAIN =================
