@@ -7,7 +7,7 @@ const API = `https://api.telegram.org/bot${TOKEN}`;
 // 👑 ADMINS
 const ADMIN_IDS = [6581234524, 7133052934, 6343143457];
 
-// 👥 USERS (NOTE: RAM only counter, not permanent DB)
+// 👥 USERS (RAM based counter)
 const USERS = new Set();
 
 function isAdmin(id) {
@@ -40,7 +40,7 @@ async function checkJoin(userId) {
 async function sendJoin(chatId) {
   return axios.post(`${API}/sendMessage`, {
     chat_id: chatId,
-    text: "⚠️ Bot use karne ke liye tamam channels join karein.",
+    text: "⚠️ Please join all channels first.",
     reply_markup: {
       inline_keyboard: [
         [{ text: "📢 AZ Tricks", url: "https://t.me/AZ_Tricks" }],
@@ -59,45 +59,68 @@ const FOOTER = `
 https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D
 `;
 
-/* =========================
-   🔍 LAND RECORD PARSER
-========================= */
-function parseLand(data, cnic) {
-  try {
-    const hits =
-      data?.data?.responses?.[0]?.hits?.hits || [];
+// 🟢 NADRA PARSER
+function parseNadra(data, cnic) {
+  let arr = [];
 
-    if (!hits.length) return null;
+  if (Array.isArray(data)) arr = data;
+  else if (Array.isArray(data?.data)) arr = data.data;
 
-    let out = `🏠 LAND RECORD FOUND\n\n`;
+  if (!arr.length) return "";
 
-    hits.forEach((item, i) => {
-      const src = item._source;
+  let out = "🟢 NADRA ADDRESS\n\n";
 
-      out += `📌 Record ${i + 1}\n`;
-      out += `🏷 ID: ${src.Id}\n`;
-      out += `📄 Registry: ${src.RegisteredNumber}\n`;
-      out += `📍 Property: ${src.PropertyNumber || "N/A"}\n`;
-      out += `📅 Date: ${src.RegistryDate}\n`;
-      out += `🏢 Tehsil: ${src.Tehsil || "N/A"}\n`;
-      out += `📌 Address: ${src.Address || "N/A"}\n\n`;
+  arr.forEach((r, i) => {
+    out += `Record ${i + 1}\n`;
+    out += `Name: ${r.NAME || "N/A"}\n`;
+    out += `CNIC: ${r.IDENTIFICATION_NO || cnic}\n`;
+    out += `Present Address: ${r.PRESENT_ADDRESS || "N/A"}\n`;
+    out += `Permanent Address: ${r.PERMANANT_ADDRESS || "N/A"}\n`;
+    out += `Status: ${r.STATUS ?? "N/A"}\n\n`;
+  });
 
-      if (Array.isArray(src.RegistryParties)) {
-        out += `👥 Parties:\n`;
-        src.RegistryParties.forEach(p => {
-          out += `- ${p.Name} (${p.CNIC})\n`;
-        });
-        out += `\n`;
-      }
-    });
-
-    return out;
-  } catch (e) {
-    return null;
-  }
+  return out;
 }
 
-/* ========================= */
+// 🏠 LAND PARSER (CNIC FILTERED)
+function parseLand(data, cnic) {
+  const hits = data?.data?.responses?.[0]?.hits?.hits || [];
+
+  if (!hits.length) return "";
+
+  let out = "🏠 LAND RECORDS\n\n";
+  let found = false;
+
+  hits.forEach((item, i) => {
+    const src = item._source;
+
+    const matched = (src.RegistryParties || []).filter(
+      p => p.CNIC === cnic
+    );
+
+    if (!matched.length) return;
+
+    found = true;
+
+    out += `📌 Record ${i + 1}\n`;
+    out += `ID: ${src.Id}\n`;
+    out += `Registry: ${src.RegisteredNumber}\n`;
+    out += `Property: ${src.PropertyNumber || "N/A"}\n`;
+    out += `Date: ${src.RegistryDate}\n`;
+    out += `Tehsil: ${src.Tehsil || "N/A"}\n`;
+    out += `Address: ${src.Address || "N/A"}\n\n`;
+
+    out += `👥 Persons:\n`;
+
+    matched.forEach(p => {
+      out += `• ${p.Name} | ${p.CNIC}\n`;
+    });
+
+    out += `━━━━━━━━━━━━━━\n\n`;
+  });
+
+  return found ? out : "";
+}
 
 module.exports = async (req, res) => {
   try {
@@ -105,29 +128,30 @@ module.exports = async (req, res) => {
     if (!body) return res.status(200).send("OK");
     if (typeof body === "string") body = JSON.parse(body);
 
-    /* ================= CALLBACK JOIN ================= */
-    const callback = body.callback_query;
+    const msg = body.message;
+    const cb = body.callback_query;
 
-    if (callback) {
-      const userId = callback.from.id;
-      const chatId = callback.message.chat.id;
+    // ================= CALLBACK =================
+    if (cb) {
+      const userId = cb.from.id;
+      const chatId = cb.message.chat.id;
 
       const joined = await checkJoin(userId);
 
       if (joined) {
         await axios.post(`${API}/answerCallbackQuery`, {
-          callback_query_id: callback.id,
-          text: "All channels joined!"
+          callback_query_id: cb.id,
+          text: "✅ Verified"
         });
 
         await axios.post(`${API}/sendMessage`, {
           chat_id: chatId,
-          text: "👋 Welcome!\nSend CNIC or Mobile Number"
+          text: "👋 Send CNIC or Mobile Number"
         });
       } else {
         await axios.post(`${API}/answerCallbackQuery`, {
-          callback_query_id: callback.id,
-          text: "❌ Join channels first",
+          callback_query_id: cb.id,
+          text: "❌ Join required",
           show_alert: true
         });
       }
@@ -135,8 +159,6 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    /* ================= MESSAGE ================= */
-    const msg = body.message;
     if (!msg || !msg.text) return res.status(200).send("OK");
 
     const chatId = msg.chat.id;
@@ -152,7 +174,7 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    /* ================= START ================= */
+    // ================= START =================
     if (text === "/start") {
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
@@ -161,7 +183,7 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    /* ================= ADMIN ================= */
+    // ================= ADMIN =================
     if (text === "/admin") {
       if (!isAdmin(userId)) {
         await axios.post(`${API}/sendMessage`, {
@@ -173,54 +195,52 @@ module.exports = async (req, res) => {
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: `👑 ADMIN PANEL\n\n📊 /stats\n👥 /users`
+        text: "👑 ADMIN\n\n/stats\n/users"
       });
 
       return res.status(200).send("OK");
     }
 
-    /* ================= STATS ================= */
+    // ================= STATS =================
     if (text === "/stats") {
-      if (!isAdmin(userId)) return res.status(200).send("OK");
+      if (!isAdmin(userId)) return;
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: `📊 BOT STATS\n\n👥 Users: ${USERS.size}\n⚡ Active`
+        text: `📊 STATS\nUsers: ${USERS.size}`
       });
 
       return res.status(200).send("OK");
     }
 
-    /* ================= USERS ================= */
+    // ================= USERS =================
     if (text === "/users") {
-      if (!isAdmin(userId)) return res.status(200).send("OK");
+      if (!isAdmin(userId)) return;
 
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
-        text: `👥 Total Users: ${USERS.size}`
+        text: `👥 USERS: ${USERS.size}`
       });
 
       return res.status(200).send("OK");
     }
 
-    /* ================= PHONE SEARCH ================= */
+    // ================= PHONE =================
     if (/^\d{10,11}$/.test(text)) {
       const phone = text.startsWith("0") ? text : "0" + text;
 
       const url = `https://famofc.site/api/database.php/?q=${phone}`;
-      const resp = await axios.get(url).catch(() => null);
+      const { data } = await axios.get(url);
 
-      const data = resp?.data;
-
-      if (!data?.success) {
+      if (!data.success) {
         await axios.post(`${API}/sendMessage`, {
           chat_id: chatId,
-          text: "❌ No record found"
+          text: "❌ No SIM record found"
         });
         return res.status(200).send("OK");
       }
 
-      let out = "📱 PHONE RESULT\n\n";
+      let out = "📱 SIM RECORDS\n\n";
 
       data.data.records.forEach((r, i) => {
         out += `Record ${i + 1}\n`;
@@ -240,44 +260,40 @@ module.exports = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    /* ================= CNIC SEARCH (SIM + LAND FIXED) ================= */
+    // ================= CNIC (ALL APIs) =================
     if (/^\d{13}$/.test(text)) {
-      const cnic = text;
+      const url1 = `https://famofc.site/api/database.php/?q=${text}`;
+      const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${text}`;
+      const url3 = `https://vercel-api-livid-tau.vercel.app/api/proxy?cnic=${text}`;
 
-      const url1 = `https://famofc.site/api/database.php/?q=${cnic}`;
-      const url2 = `https://vercel-api-livid-tau.vercel.app/api/proxy?cnic=${cnic}`;
-
-      const [r1, r2] = await Promise.all([
+      const [r1, r2, r3] = await Promise.all([
         axios.get(url1).catch(() => null),
-        axios.get(url2).catch(() => null)
+        axios.get(url2).catch(() => null),
+        axios.get(url3).catch(() => null)
       ]);
 
       const sim = r1?.data;
-      const landRaw = r2?.data;
+      const nadra = r2?.data;
+      const land = r3?.data;
 
-      let out = `🆔 CNIC REPORT\n\n`;
+      let out = "🆔 CNIC REPORT\n━━━━━━━━━━━━━━\n\n";
 
-      /* SIM */
-      if (sim?.success && sim?.data?.records?.length) {
-        out += `📱 SIM DATA\n\n`;
+      // SIM
+      if (sim?.success) {
+        out += "📱 SIM RECORDS\n";
         sim.data.records.forEach((r, i) => {
-          out += `Record ${i + 1}\n`;
-          out += `Name: ${r.full_name}\n`;
-          out += `Phone: ${r.phone}\n`;
-          out += `CNIC: ${r.cnic}\n\n`;
+          out += `${i + 1}. ${r.full_name} | ${r.phone}\n`;
         });
-      } else {
-        out += `📱 SIM DATA: Not Found\n\n`;
+        out += "\n";
       }
 
-      /* LAND FIXED */
-      const land = parseLand(landRaw, cnic);
+      // NADRA
+      const nadraOut = parseNadra(nadra, text);
+      out += nadraOut ? nadraOut + "\n" : "🟢 NADRA: No Data\n\n";
 
-      if (land) {
-        out += land;
-      } else {
-        out += `🏠 LAND RECORD: Not Found\n\n`;
-      }
+      // LAND
+      const landOut = parseLand(land, text);
+      out += landOut ? landOut : "🏠 LAND: No Data\n\n";
 
       out += FOOTER;
 
@@ -290,7 +306,6 @@ module.exports = async (req, res) => {
     }
 
     return res.status(200).send("OK");
-
   } catch (e) {
     console.log(e);
     return res.status(200).send("OK");
