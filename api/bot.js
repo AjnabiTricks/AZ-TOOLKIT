@@ -1,5 +1,6 @@
 const axios = require("axios");
 
+// ================= CONFIG =================
 const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
@@ -7,25 +8,38 @@ const ADMIN_IDS = [6581234524, 7133052934, 6343143457];
 const CHANNELS = ["@AZ_Tricks", "@Hacking_Tricks0", "@a2z_hacking"];
 
 const USERS = new Set();
-const JOIN_CACHE = new Map(); // userId -> timestamp
+const JOIN_CACHE = new Set();
+
+// ================= HELPERS =================
 
 function isAdmin(id) {
   return ADMIN_IDS.includes(Number(id));
 }
 
-// ================= FAST REQUEST =================
-const http = axios.create({
-  timeout: 6000
-});
+async function sendMessage(chatId, text) {
+  return axios.post(`${API}/sendMessage`, {
+    chat_id: chatId,
+    text
+  });
+}
 
-// ================= JOIN CACHE (24h) =================
+async function deleteMessage(chatId, messageId) {
+  try {
+    await axios.post(`${API}/deleteMessage`, {
+      chat_id: chatId,
+      message_id: messageId
+    });
+  } catch {}
+}
+
+// ================= JOIN CHECK =================
+
 async function checkJoin(userId) {
-  const cached = JOIN_CACHE.get(userId);
-  if (cached && Date.now() - cached < 86400000) return true;
+  if (JOIN_CACHE.has(userId)) return true;
 
   try {
     for (const ch of CHANNELS) {
-      const res = await http.get(
+      const res = await axios.get(
         `${API}/getChatMember?chat_id=${ch}&user_id=${userId}`
       );
 
@@ -35,72 +49,88 @@ async function checkJoin(userId) {
       }
     }
 
-    JOIN_CACHE.set(userId, Date.now());
+    JOIN_CACHE.add(userId);
     return true;
   } catch {
     return false;
   }
 }
 
-// ================= TELEGRAM =================
-async function send(chatId, text) {
-  return http.post(`${API}/sendMessage`, {
-    chat_id: chatId,
-    text
-  });
-}
-
-async function del(chatId, id) {
-  try {
-    await http.post(`${API}/deleteMessage`, {
-      chat_id: chatId,
-      message_id: id
-    });
-  } catch {}
-}
-
 // ================= FORMATTERS =================
-function simFormat(d) {
-  if (!d?.success) return "📱 SIM: No Data\n";
-  return "📱 SIM OK\n" + d.data.records.map(r =>
-    `\n${r.full_name} | ${r.phone} | ${r.cnic} | ${r.address}\n`
-  ).join("\n----------------\n");
+
+function formatSIM(data) {
+  if (!data?.success) return "📱 SIM: No Record Found\n";
+
+  let out = "📱 SIM RECORDS\n";
+  data.data.records.forEach((r, i) => {
+    out += `\nRecord ${i + 1}\n`;
+    out += `Name: ${r.full_name || "N/A"}\n`;
+    out += `Mobile: ${r.phone || "N/A"}\n`;
+    out += `CNIC: ${r.cnic || "N/A"}\n`;
+    out += `Address: ${r.address || "N/A"}\n`;
+    out += `----------------------\n`;
+  });
+
+  return out;
 }
 
-function nadraFormat(d) {
-  const arr = Array.isArray(d) ? d : [];
-  if (!arr.length) return "🟢 NADRA: No Data\n";
+function formatNADRA(data) {
+  const arr = Array.isArray(data) ? data : [];
+  if (!arr.length) return "🟢 NADRA: No Record Found\n";
 
-  return "🟢 NADRA OK\n" + arr.map(r =>
-    `\n${r.NAME} | ${r.IDENTIFICATION_NO}\n${r.PRESENT_ADDRESS}\n${r.PERMANANT_ADDRESS}\n${r.STATUS}\n`
-  ).join("\n----------------\n");
+  let out = "🟢 NADRA ADDRESS\n";
+  arr.forEach((r, i) => {
+    out += `\nRecord ${i + 1}\n`;
+    out += `Name: ${r.NAME || "N/A"}\n`;
+    out += `CNIC: ${r.IDENTIFICATION_NO || "N/A"}\n`;
+    out += `Present: ${r.PRESENT_ADDRESS || "N/A"}\n`;
+    out += `Permanent: ${r.PERMANANT_ADDRESS || "N/A"}\n`;
+    out += `Status: ${r.STATUS || "N/A"}\n`;
+    out += `----------------------\n`;
+  });
+
+  return out;
 }
 
-function landFormat(d) {
-  const hits = d?.data?.responses?.[0]?.hits?.hits || [];
-  if (!hits.length) return "🏠 LAND: No Data\n";
+function formatLAND(data) {
+  const hits = data?.data?.responses?.[0]?.hits?.hits || [];
+  if (!hits.length) return "🏠 LAND: No Record Found\n";
 
-  return "🏠 LAND OK\n" + hits.map(h => {
+  let out = "🏠 LAND RECORDS\n";
+
+  hits.forEach((h, i) => {
     const s = h._source;
-    return `
-${s.RegisteredNumber} | ${s.PropertyNumber}
-${s.RegistryDate} | ${s.Tehsil}
-${s.Address} | ${s.Area} | ${s.RegistryValue}
 
-PARTIES:
-${(s.RegistryParties || []).map(p => `- ${p.Name} | ${p.CNIC}`).join("\n")}
-`;
-  }).join("\n----------------\n");
+    out += `\nRecord ${i + 1}\n`;
+    out += `Registry #: ${s.RegisteredNumber || "N/A"}\n`;
+    out += `Property: ${s.PropertyNumber || "N/A"}\n`;
+    out += `Date: ${s.RegistryDate || "N/A"}\n`;
+    out += `Tehsil: ${s.Tehsil || "N/A"}\n`;
+    out += `Address: ${s.Address || "N/A"}\n`;
+    out += `Area: ${s.Area || "N/A"}\n`;
+    out += `Value: ${s.RegistryValue || "N/A"}\n`;
+
+    out += `\nParties:\n`;
+    (s.RegistryParties || []).forEach(p => {
+      out += `- ${p.Name} | ${p.CNIC}\n`;
+    });
+
+    out += `----------------------\n`;
+  });
+
+  return out;
 }
 
 // ================= MAIN =================
+
 module.exports = async (req, res) => {
   try {
     let body = req.body;
+    if (!body) return res.status(200).send("OK");
     if (typeof body === "string") body = JSON.parse(body);
 
     const msg = body.message;
-    if (!msg?.text) return res.end("OK");
+    if (!msg || !msg.text) return res.status(200).send("OK");
 
     const chatId = msg.chat.id;
     const text = msg.text.trim();
@@ -109,62 +139,61 @@ module.exports = async (req, res) => {
     USERS.add(userId);
 
     const joined = await checkJoin(userId);
-    if (!joined && text !== "/start") {
-      await send(chatId, "⚠️ Join required");
-      return res.end("OK");
+
+    if (text !== "/start" && !joined) {
+      await sendMessage(chatId, "⚠️ Please join channels first.");
+      return res.status(200).send("OK");
     }
 
-    // ================= CNIC =================
+    // ================= CNIC FLOW =================
     if (/^\d{13}$/.test(text)) {
       const cnic = text;
 
-      const loading = await send(chatId, "🔍 Searching...");
-      const loadId = loading.data.result.message_id;
+      // STEP 1
+      const msg1 = await sendMessage(chatId, "🔍 Searching CNIC...");
+      const msg1Id = msg1.data.result.message_id;
 
-      // FAST PARALLEL FETCH
       const url1 = `https://famofc.site/api/database.php/?q=${cnic}`;
       const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${cnic}`;
       const url3 = `https://vercel-api-livid-tau.vercel.app/api/proxy?cnic=${cnic}`;
 
-      const [sim, nadra] = await Promise.all([
-        http.get(url1).catch(() => null),
-        http.get(url2).catch(() => null)
+      const [r1, r2, r3] = await Promise.allSettled([
+        axios.get(url1),
+        axios.get(url2),
+        axios.get(url3)
       ]);
 
-      await del(chatId, loadId);
+      await deleteMessage(chatId, msg1Id);
 
-      // STEP 1 RESULT FAST
-      await send(
+      // STEP 2
+      await sendMessage(
         chatId,
         `🆔 CNIC: ${cnic}\n\n` +
-        simFormat(sim?.data) +
+        formatSIM(r1?.value?.data) +
         "\n" +
-        nadraFormat(nadra?.data)
+        formatNADRA(r2?.value?.data)
       );
 
-      // LAND ASYNC (NO WAIT BLOCK)
-      setTimeout(async () => {
-        const landMsg = await send(chatId, "⏳ Land loading...");
-        const landId = landMsg.data.result.message_id;
+      // STEP 3
+      const msg2 = await sendMessage(chatId, "⏳ Fetching Land Record...");
+      const msg2Id = msg2.data.result.message_id;
 
-        const land = await http.get(url3).catch(() => null);
+      await deleteMessage(chatId, msg2Id);
 
-        await del(chatId, landId);
+      // STEP 4
+      await sendMessage(
+        chatId,
+        `🆔 CNIC: ${cnic}\n\n` +
+        formatLAND(r3?.value?.data)
+      );
 
-        await send(
-          chatId,
-          `🆔 CNIC: ${cnic}\n\n` +
-          landFormat(land?.data)
-        );
-      }, 200);
-
-      return res.end("OK");
+      return res.status(200).send("OK");
     }
 
-    return res.end("OK");
+    return res.status(200).send("OK");
 
   } catch (e) {
     console.log(e);
-    return res.end("OK");
+    return res.status(200).send("OK");
   }
 };
