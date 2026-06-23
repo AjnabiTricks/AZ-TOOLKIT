@@ -1,30 +1,31 @@
 const axios = require("axios");
 
-// 🔐 BOT TOKEN
 const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
-// 👑 ADMINS
 const ADMIN_IDS = [6581234524, 7133052934, 6343143457];
+const CHANNELS = ["@AZ_Tricks", "@Hacking_Tricks0", "@a2z_hacking"];
 
-// 👥 USERS (runtime cache only)
 const USERS = new Set();
-const JOINED_CACHE = new Set();
+const JOIN_CACHE = new Map(); // userId -> timestamp
 
 function isAdmin(id) {
   return ADMIN_IDS.includes(Number(id));
 }
 
-// 📢 CHANNELS
-const CHANNELS = ["@AZ_Tricks", "@Hacking_Tricks0", "@a2z_hacking"];
+// ================= FAST REQUEST =================
+const http = axios.create({
+  timeout: 6000
+});
 
-// 🔒 JOIN CHECK (cached)
+// ================= JOIN CACHE (24h) =================
 async function checkJoin(userId) {
-  if (JOINED_CACHE.has(userId)) return true;
+  const cached = JOIN_CACHE.get(userId);
+  if (cached && Date.now() - cached < 86400000) return true;
 
   try {
     for (const ch of CHANNELS) {
-      const res = await axios.get(
+      const res = await http.get(
         `${API}/getChatMember?chat_id=${ch}&user_id=${userId}`
       );
 
@@ -34,116 +35,72 @@ async function checkJoin(userId) {
       }
     }
 
-    JOINED_CACHE.add(userId);
+    JOIN_CACHE.set(userId, Date.now());
     return true;
   } catch {
     return false;
   }
 }
 
-// 📢 JOIN MESSAGE
-async function sendJoin(chatId) {
-  return axios.post(`${API}/sendMessage`, {
+// ================= TELEGRAM =================
+async function send(chatId, text) {
+  return http.post(`${API}/sendMessage`, {
     chat_id: chatId,
-    text: "⚠️ Please join all channels first.",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "AZ Tricks", url: "https://t.me/AZ_Tricks" }],
-        [{ text: "Hacking Tricks", url: "https://t.me/Hacking_Tricks0" }],
-        [{ text: "A2Z Hacking", url: "https://t.me/a2z_hacking" }]
-      ]
-    }
+    text
   });
 }
 
-// 📌 FOOTER
-const FOOTER = `
-━━━━━━━━━━━━━━
-📢 WhatsApp Channel:
-https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D
-`;
-
-// ================= HELPERS =================
-
-function formatSIM(data) {
-  if (!data?.success) return "📱 SIM: No Record Found\n\n";
-
-  let out = "📱 SIM RECORDS\n\n";
-  data.data.records.forEach((r, i) => {
-    out += `Record ${i + 1}\n`;
-    out += `Name: ${r.full_name || "N/A"}\n`;
-    out += `Mobile: ${r.phone || "N/A"}\n`;
-    out += `CNIC: ${r.cnic || "N/A"}\n`;
-    out += `Address: ${r.address || "N/A"}\n`;
-    out += `━━━━━━━━━━━━━━\n\n`;
-  });
-
-  return out;
-}
-
-function formatNADRA(data) {
-  let arr = Array.isArray(data) ? data : [];
-
-  if (!arr.length) return "🟢 NADRA: No Record Found\n\n";
-
-  let out = "🟢 NADRA ADDRESS\n\n";
-  arr.forEach((r, i) => {
-    out += `Record ${i + 1}\n`;
-    out += `Name: ${r.NAME}\n`;
-    out += `CNIC: ${r.IDENTIFICATION_NO}\n`;
-    out += `Present Address: ${r.PRESENT_ADDRESS}\n`;
-    out += `Permanent Address: ${r.PERMANANT_ADDRESS}\n`;
-    out += `Status: ${r.STATUS}\n`;
-    out += `━━━━━━━━━━━━━━\n\n`;
-  });
-
-  return out;
-}
-
-function formatLAND(data, cnic) {
-  const hits = data?.data?.responses?.[0]?.hits?.hits || [];
-
-  if (!hits.length) return "🏠 LAND: No Record Found\n\n";
-
-  let out = "🏠 LAND RECORDS\n\n";
-
-  hits.forEach((item, i) => {
-    const src = item._source;
-
-    const match = (src.RegistryParties || []).filter(p => p.CNIC === cnic);
-    if (!match.length) return;
-
-    out += `📌 Record ${i + 1}\n`;
-    out += `Registry No: ${src.RegisteredNumber}\n`;
-    out += `Property: ${src.PropertyNumber}\n`;
-    out += `Date: ${src.RegistryDate}\n`;
-    out += `Tehsil: ${src.Tehsil}\n`;
-    out += `Address: ${src.Address}\n`;
-    out += `Value: ${src.RegistryValue}\n\n`;
-
-    out += `👥 Parties:\n`;
-    src.RegistryParties.forEach(p => {
-      out += `• ${p.Name} | ${p.CNIC}\n`;
+async function del(chatId, id) {
+  try {
+    await http.post(`${API}/deleteMessage`, {
+      chat_id: chatId,
+      message_id: id
     });
+  } catch {}
+}
 
-    out += `━━━━━━━━━━━━━━\n\n`;
-  });
+// ================= FORMATTERS =================
+function simFormat(d) {
+  if (!d?.success) return "📱 SIM: No Data\n";
+  return "📱 SIM OK\n" + d.data.records.map(r =>
+    `\n${r.full_name} | ${r.phone} | ${r.cnic} | ${r.address}\n`
+  ).join("\n----------------\n");
+}
 
-  return out;
+function nadraFormat(d) {
+  const arr = Array.isArray(d) ? d : [];
+  if (!arr.length) return "🟢 NADRA: No Data\n";
+
+  return "🟢 NADRA OK\n" + arr.map(r =>
+    `\n${r.NAME} | ${r.IDENTIFICATION_NO}\n${r.PRESENT_ADDRESS}\n${r.PERMANANT_ADDRESS}\n${r.STATUS}\n`
+  ).join("\n----------------\n");
+}
+
+function landFormat(d) {
+  const hits = d?.data?.responses?.[0]?.hits?.hits || [];
+  if (!hits.length) return "🏠 LAND: No Data\n";
+
+  return "🏠 LAND OK\n" + hits.map(h => {
+    const s = h._source;
+    return `
+${s.RegisteredNumber} | ${s.PropertyNumber}
+${s.RegistryDate} | ${s.Tehsil}
+${s.Address} | ${s.Area} | ${s.RegistryValue}
+
+PARTIES:
+${(s.RegistryParties || []).map(p => `- ${p.Name} | ${p.CNIC}`).join("\n")}
+`;
+  }).join("\n----------------\n");
 }
 
 // ================= MAIN =================
-
 module.exports = async (req, res) => {
   try {
     let body = req.body;
-    if (!body) return res.status(200).send("OK");
     if (typeof body === "string") body = JSON.parse(body);
 
     const msg = body.message;
-    const cb = body.callback_query;
-
-    if (!msg || !msg.text) return res.status(200).send("OK");
+    if (!msg?.text) return res.end("OK");
 
     const chatId = msg.chat.id;
     const text = msg.text.trim();
@@ -152,66 +109,62 @@ module.exports = async (req, res) => {
     USERS.add(userId);
 
     const joined = await checkJoin(userId);
-
-    if (text !== "/start" && !joined) {
-      await sendJoin(chatId);
-      return res.status(200).send("OK");
+    if (!joined && text !== "/start") {
+      await send(chatId, "⚠️ Join required");
+      return res.end("OK");
     }
 
-    // ================= CNIC FLOW =================
+    // ================= CNIC =================
     if (/^\d{13}$/.test(text)) {
       const cnic = text;
 
-      // 1️⃣ FIRST MESSAGE
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: "🔍 Searching CNIC..."
-      });
+      const loading = await send(chatId, "🔍 Searching...");
+      const loadId = loading.data.result.message_id;
 
-      // APIs parallel
+      // FAST PARALLEL FETCH
       const url1 = `https://famofc.site/api/database.php/?q=${cnic}`;
       const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${cnic}`;
       const url3 = `https://vercel-api-livid-tau.vercel.app/api/proxy?cnic=${cnic}`;
 
-      const [r1, r2, r3] = await Promise.allSettled([
-        axios.get(url1),
-        axios.get(url2),
-        axios.get(url3)
+      const [sim, nadra] = await Promise.all([
+        http.get(url1).catch(() => null),
+        http.get(url2).catch(() => null)
       ]);
 
-      const sim = r1.status === "fulfilled" ? r1.value.data : null;
-      const nadra = r2.status === "fulfilled" ? r2.value.data : null;
+      await del(chatId, loadId);
 
-      // 2️⃣ SIM + NADRA
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text:
-          formatSIM(sim) +
-          "\n" +
-          formatNADRA(nadra) +
-          "\n━━━━━━━━━━━━━━"
-      });
+      // STEP 1 RESULT FAST
+      await send(
+        chatId,
+        `🆔 CNIC: ${cnic}\n\n` +
+        simFormat(sim?.data) +
+        "\n" +
+        nadraFormat(nadra?.data)
+      );
 
-      // 3️⃣ LAND LOADING
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: "⏳ Fetching Land Record..."
-      });
+      // LAND ASYNC (NO WAIT BLOCK)
+      setTimeout(async () => {
+        const landMsg = await send(chatId, "⏳ Land loading...");
+        const landId = landMsg.data.result.message_id;
 
-      const land = r3.status === "fulfilled" ? r3.value.data : null;
+        const land = await http.get(url3).catch(() => null);
 
-      // 4️⃣ LAND RESULT
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: formatLAND(land, cnic) + FOOTER
-      });
+        await del(chatId, landId);
 
-      return res.status(200).send("OK");
+        await send(
+          chatId,
+          `🆔 CNIC: ${cnic}\n\n` +
+          landFormat(land?.data)
+        );
+      }, 200);
+
+      return res.end("OK");
     }
 
-    return res.status(200).send("OK");
+    return res.end("OK");
+
   } catch (e) {
     console.log(e);
-    return res.status(200).send("OK");
+    return res.end("OK");
   }
 };
