@@ -1,41 +1,26 @@
 const axios = require("axios");
 
-// ================= CONFIG =================
+// 🔐 BOT TOKEN
 const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
+// 👑 ADMINS
 const ADMIN_IDS = [6581234524, 7133052934, 6343143457];
-const CHANNELS = ["@AZ_Tricks", "@Hacking_Tricks0", "@a2z_hacking"];
 
+// 👥 USERS (runtime cache only)
 const USERS = new Set();
-const JOIN_CACHE = new Set();
-
-// ================= HELPERS =================
+const JOINED_CACHE = new Set();
 
 function isAdmin(id) {
   return ADMIN_IDS.includes(Number(id));
 }
 
-async function sendMessage(chatId, text) {
-  return axios.post(`${API}/sendMessage`, {
-    chat_id: chatId,
-    text
-  });
-}
+// 📢 CHANNELS
+const CHANNELS = ["@AZ_Tricks", "@Hacking_Tricks0", "@a2z_hacking"];
 
-async function deleteMessage(chatId, messageId) {
-  try {
-    await axios.post(`${API}/deleteMessage`, {
-      chat_id: chatId,
-      message_id: messageId
-    });
-  } catch {}
-}
-
-// ================= JOIN CHECK =================
-
+// 🔒 JOIN CHECK (cached)
 async function checkJoin(userId) {
-  if (JOIN_CACHE.has(userId)) return true;
+  if (JOINED_CACHE.has(userId)) return true;
 
   try {
     for (const ch of CHANNELS) {
@@ -49,44 +34,67 @@ async function checkJoin(userId) {
       }
     }
 
-    JOIN_CACHE.add(userId);
+    JOINED_CACHE.add(userId);
     return true;
   } catch {
     return false;
   }
 }
 
-// ================= FORMATTERS =================
+// 📢 JOIN MESSAGE
+async function sendJoin(chatId) {
+  return axios.post(`${API}/sendMessage`, {
+    chat_id: chatId,
+    text: "⚠️ Please join all channels first.",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "AZ Tricks", url: "https://t.me/AZ_Tricks" }],
+        [{ text: "Hacking Tricks", url: "https://t.me/Hacking_Tricks0" }],
+        [{ text: "A2Z Hacking", url: "https://t.me/a2z_hacking" }]
+      ]
+    }
+  });
+}
+
+// 📌 FOOTER
+const FOOTER = `
+━━━━━━━━━━━━━━
+📢 WhatsApp Channel:
+https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D
+`;
+
+// ================= HELPERS =================
 
 function formatSIM(data) {
-  if (!data?.success) return "📱 SIM: No Record Found\n";
+  if (!data?.success) return "📱 SIM: No Record Found\n\n";
 
-  let out = "📱 SIM RECORDS\n";
+  let out = "📱 SIM RECORDS\n\n";
   data.data.records.forEach((r, i) => {
-    out += `\nRecord ${i + 1}\n`;
+    out += `Record ${i + 1}\n`;
     out += `Name: ${r.full_name || "N/A"}\n`;
     out += `Mobile: ${r.phone || "N/A"}\n`;
     out += `CNIC: ${r.cnic || "N/A"}\n`;
     out += `Address: ${r.address || "N/A"}\n`;
-    out += `----------------------\n`;
+    out += `━━━━━━━━━━━━━━\n\n`;
   });
 
   return out;
 }
 
 function formatNADRA(data) {
-  const arr = Array.isArray(data) ? data : [];
-  if (!arr.length) return "🟢 NADRA: No Record Found\n";
+  let arr = Array.isArray(data) ? data : [];
 
-  let out = "🟢 NADRA ADDRESS\n";
+  if (!arr.length) return "🟢 NADRA: No Record Found\n\n";
+
+  let out = "🟢 NADRA ADDRESS\n\n";
   arr.forEach((r, i) => {
-    out += `\nRecord ${i + 1}\n`;
-    out += `Name: ${r.NAME || "N/A"}\n`;
-    out += `CNIC: ${r.IDENTIFICATION_NO || "N/A"}\n`;
-    out += `Present: ${r.PRESENT_ADDRESS || "N/A"}\n`;
-    out += `Permanent: ${r.PERMANANT_ADDRESS || "N/A"}\n`;
-    out += `Status: ${r.STATUS || "N/A"}\n`;
-    out += `----------------------\n`;
+    out += `Record ${i + 1}\n`;
+    out += `Name: ${r.NAME}\n`;
+    out += `CNIC: ${r.IDENTIFICATION_NO}\n`;
+    out += `Present Address: ${r.PRESENT_ADDRESS}\n`;
+    out += `Permanent Address: ${r.PERMANANT_ADDRESS}\n`;
+    out += `Status: ${r.STATUS}\n`;
+    out += `━━━━━━━━━━━━━━\n\n`;
   });
 
   return out;
@@ -95,36 +103,30 @@ function formatNADRA(data) {
 function formatLAND(data, cnic) {
   const hits = data?.data?.responses?.[0]?.hits?.hits || [];
 
-  if (!hits.length) {
-    return `🏠 LAND RECORD (CNIC: ${cnic})\n\n❌ No Record Found\n`;
-  }
+  if (!hits.length) return "🏠 LAND: No Record Found\n\n";
 
-  let out = `🏠 LAND RECORD (CNIC: ${cnic})\n\n`;
+  let out = "🏠 LAND RECORDS\n\n";
 
-  hits.forEach((h, i) => {
-    const s = h._source;
+  hits.forEach((item, i) => {
+    const src = item._source;
 
-    out += `━━━━━━━━━━━━━━━━━━\n`;
-    out += `📌 Record #${i + 1}\n`;
-    out += `Registry No: ${s.RegisteredNumber || "N/A"}\n`;
-    out += `Property: ${s.PropertyNumber || "N/A"}\n`;
-    out += `Type: ${s.RegistryType || "N/A"}\n`;   // <-- only raw type now
-    out += `Date: ${s.RegistryDate || "N/A"}\n`;
-    out += `Tehsil: ${s.Tehsil || "N/A"}\n`;
-    out += `Address: ${s.Address || "N/A"}\n`;
-    out += `Area: ${s.Area || "N/A"}\n`;
-    out += `Value: ${s.RegistryValue || "N/A"}\n\n`;
+    const match = (src.RegistryParties || []).filter(p => p.CNIC === cnic);
+    if (!match.length) return;
 
-    out += `👥 Parties Details:\n`;
+    out += `📌 Record ${i + 1}\n`;
+    out += `Registry No: ${src.RegisteredNumber}\n`;
+    out += `Property: ${src.PropertyNumber}\n`;
+    out += `Date: ${src.RegistryDate}\n`;
+    out += `Tehsil: ${src.Tehsil}\n`;
+    out += `Address: ${src.Address}\n`;
+    out += `Value: ${src.RegistryValue}\n\n`;
 
-    (s.RegistryParties || []).forEach((p, idx) => {
-      out += `  ${idx + 1})\n`;
-      out += `     Name: ${p.Name || "N/A"}\n`;
-      out += `     Father/Spouse: ${p.SpouseName || "N/A"}\n`;
-      out += `     CNIC: ${p.CNIC || "N/A"}\n\n`;
+    out += `👥 Parties:\n`;
+    src.RegistryParties.forEach(p => {
+      out += `• ${p.Name} | ${p.CNIC}\n`;
     });
 
-    out += `━━━━━━━━━━━━━━━━━━\n\n`;
+    out += `━━━━━━━━━━━━━━\n\n`;
   });
 
   return out;
@@ -139,6 +141,8 @@ module.exports = async (req, res) => {
     if (typeof body === "string") body = JSON.parse(body);
 
     const msg = body.message;
+    const cb = body.callback_query;
+
     if (!msg || !msg.text) return res.status(200).send("OK");
 
     const chatId = msg.chat.id;
@@ -150,7 +154,7 @@ module.exports = async (req, res) => {
     const joined = await checkJoin(userId);
 
     if (text !== "/start" && !joined) {
-      await sendMessage(chatId, "⚠️ Please join channels first.");
+      await sendJoin(chatId);
       return res.status(200).send("OK");
     }
 
@@ -158,10 +162,13 @@ module.exports = async (req, res) => {
     if (/^\d{13}$/.test(text)) {
       const cnic = text;
 
-      // STEP 1
-      const msg1 = await sendMessage(chatId, "🔍 Searching CNIC...");
-      const msg1Id = msg1.data.result.message_id;
+      // 1️⃣ FIRST MESSAGE
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: "🔍 Searching CNIC..."
+      });
 
+      // APIs parallel
       const url1 = `https://famofc.site/api/database.php/?q=${cnic}`;
       const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${cnic}`;
       const url3 = `https://vercel-api-livid-tau.vercel.app/api/proxy?cnic=${cnic}`;
@@ -172,35 +179,37 @@ module.exports = async (req, res) => {
         axios.get(url3)
       ]);
 
-      await deleteMessage(chatId, msg1Id);
+      const sim = r1.status === "fulfilled" ? r1.value.data : null;
+      const nadra = r2.status === "fulfilled" ? r2.value.data : null;
 
-      // STEP 2
-      await sendMessage(
-        chatId,
-        `🆔 CNIC: ${cnic}\n\n` +
-        formatSIM(r1?.value?.data) +
-        "\n" +
-        formatNADRA(r2?.value?.data)
-      );
+      // 2️⃣ SIM + NADRA
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text:
+          formatSIM(sim) +
+          "\n" +
+          formatNADRA(nadra) +
+          "\n━━━━━━━━━━━━━━"
+      });
 
-      // STEP 3
-      const msg2 = await sendMessage(chatId, "⏳ Fetching Land Record...");
-      const msg2Id = msg2.data.result.message_id;
+      // 3️⃣ LAND LOADING
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: "⏳ Fetching Land Record..."
+      });
 
-      await deleteMessage(chatId, msg2Id);
+      const land = r3.status === "fulfilled" ? r3.value.data : null;
 
-      // STEP 4
-      await sendMessage(
-        chatId,
-        `🆔 CNIC: ${cnic}\n\n` +
-        formatLAND(r3?.value?.data)
-      );
+      // 4️⃣ LAND RESULT
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: formatLAND(land, cnic) + FOOTER
+      });
 
       return res.status(200).send("OK");
     }
 
     return res.status(200).send("OK");
-
   } catch (e) {
     console.log(e);
     return res.status(200).send("OK");
