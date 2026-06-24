@@ -108,12 +108,12 @@ function formatLAND(data, cnic) {
     out += `📌 Record #${i + 1}\n`;
     out += `Registry No: ${s.RegisteredNumber || "N/A"}\n`;
     out += `Property: ${s.PropertyNumber || "N/A"}\n`;
-    out += `Type: ${s.RegistryType || "N/A"}\n`;   // <-- only raw type now
     out += `Date: ${s.RegistryDate || "N/A"}\n`;
     out += `Tehsil: ${s.Tehsil || "N/A"}\n`;
     out += `Address: ${s.Address || "N/A"}\n`;
     out += `Area: ${s.Area || "N/A"}\n`;
     out += `Value: ${s.RegistryValue || "N/A"}\n\n`;
+    out += `Type: ${s.RegistryType || "N/A"}\n`;   // <-- only raw type now
 
     out += `👥 Parties Details:\n`;
 
