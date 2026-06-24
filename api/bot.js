@@ -113,7 +113,7 @@ function formatLAND(data, cnic) {
     out += `Address: ${s.Address || "N/A"}\n`;
     out += `Area: ${s.Area || "N/A"}\n`;
     out += `Value: ${s.RegistryValue || "N/A"}\n\n`;
-    out += `Type: ${s.RegistryType || "N/A"}\n\n`;   // <-- only raw type now
+    out += `Type: ${s.RegistryType || "N/A"}\n\n`;
 
     out += `👥 Parties Details:\n`;
 
