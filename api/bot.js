@@ -1,23 +1,42 @@
 const axios = require("axios");
-const PDFKit = require("pdfkit");
-const fs = require("fs");
 
-// 🔐 BOT TOKEN
+// ================= CONFIG =================
 const TOKEN = "8914391257:AAFl77h8xT015qTcJy0zHuq9xQPTEW17M6I";
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
-// 👑 ADMINS
 const ADMIN_IDS = [6581234524, 7133052934, 6343143457];
-
-// 👥 USERS CACHE
-const USERS = new Set();
-
-// 📢 CHANNELS
 const CHANNELS = ["@AZ_Tricks", "@Hacking_Tricks0", "@a2z_hacking"];
 
-/* ================= JOIN CHECK ================= */
+const USERS = new Set();
+const JOIN_CACHE = new Set();
+
+// ================= HELPERS =================
+
+function isAdmin(id) {
+  return ADMIN_IDS.includes(Number(id));
+}
+
+async function sendMessage(chatId, text) {
+  return axios.post(`${API}/sendMessage`, {
+    chat_id: chatId,
+    text
+  });
+}
+
+async function deleteMessage(chatId, messageId) {
+  try {
+    await axios.post(`${API}/deleteMessage`, {
+      chat_id: chatId,
+      message_id: messageId
+    });
+  } catch {}
+}
+
+// ================= JOIN CHECK =================
 
 async function checkJoin(userId) {
+  if (JOIN_CACHE.has(userId)) return true;
+
   try {
     for (const ch of CHANNELS) {
       const res = await axios.get(
@@ -29,162 +48,98 @@ async function checkJoin(userId) {
         return false;
       }
     }
+
+    JOIN_CACHE.add(userId);
     return true;
   } catch {
     return false;
   }
 }
 
-/* ================= TEMP MESSAGE (AUTO DELETE) ================= */
-
-async function sendTemp(chatId, text) {
-  const res = await axios.post(`${API}/sendMessage`, {
-    chat_id: chatId,
-    text
-  });
-
-  const msgId = res.data.result.message_id;
-
-  setTimeout(() => {
-    axios.post(`${API}/deleteMessage`, {
-      chat_id: chatId,
-      message_id: msgId
-    }).catch(() => {});
-  }, 3000);
-}
-
-/* ================= FORMAT SIM ================= */
+// ================= FORMATTERS =================
 
 function formatSIM(data) {
-  if (!data?.success) return "📱 SIM: No Record Found\n\n";
+  if (!data?.success) return "📱 SIM: No Record Found\n";
 
-  let out = "📱 SIM RECORDS\n━━━━━━━━━━━━━━\n";
-
+  let out = "📱 SIM RECORDS\n";
   data.data.records.forEach((r, i) => {
-    out += `\nRecord #${i + 1}\n`;
+    out += `\nRecord ${i + 1}\n`;
     out += `Name: ${r.full_name || "N/A"}\n`;
     out += `Mobile: ${r.phone || "N/A"}\n`;
     out += `CNIC: ${r.cnic || "N/A"}\n`;
     out += `Address: ${r.address || "N/A"}\n`;
-    out += `━━━━━━━━━━━━━━`;
+    out += `----------------------\n`;
   });
 
-  return out + "\n\n";
+  return out;
 }
-
-/* ================= FORMAT NADRA ================= */
 
 function formatNADRA(data) {
-  let arr = Array.isArray(data) ? data : data?.data || [];
+  const arr = Array.isArray(data) ? data : [];
+  if (!arr.length) return "🟢 NADRA: No Record Found\n";
 
-  if (!arr.length) return "🟢 NADRA: No Record Found\n\n";
-
-  let out = "🟢 NADRA ADDRESS\n━━━━━━━━━━━━━━\n";
-
+  let out = "🟢 NADRA ADDRESS\n";
   arr.forEach((r, i) => {
-    out += `\nRecord #${i + 1}\n`;
+    out += `\nRecord ${i + 1}\n`;
     out += `Name: ${r.NAME || "N/A"}\n`;
     out += `CNIC: ${r.IDENTIFICATION_NO || "N/A"}\n`;
-    out += `Present Address: ${r.PRESENT_ADDRESS || "N/A"}\n`;
-    out += `Permanent Address: ${r.PERMANANT_ADDRESS || "N/A"}\n`;
+    out += `Present: ${r.PRESENT_ADDRESS || "N/A"}\n`;
+    out += `Permanent: ${r.PERMANANT_ADDRESS || "N/A"}\n`;
     out += `Status: ${r.STATUS || "N/A"}\n`;
-    out += `━━━━━━━━━━━━━━`;
+    out += `----------------------\n`;
   });
 
-  return out + "\n\n";
+  return out;
 }
-
-/* ================= FORMAT LAND RECORD ================= */
 
 function formatLAND(data, cnic) {
   const hits = data?.data?.responses?.[0]?.hits?.hits || [];
 
-  if (!hits.length) return "🏠 LAND: No Record Found\n\n";
+  if (!hits.length) {
+    return `🏠 LAND RECORD (CNIC: ${cnic})\n\n❌ No Record Found\n`;
+  }
 
-  let out = "🏠 LAND RECORD\n━━━━━━━━━━━━━━\n";
+  let out = `🏠 LAND RECORD (CNIC: ${cnic})\n\n`;
 
-  hits.forEach((item, i) => {
-    const src = item._source;
+  hits.forEach((h, i) => {
+    const s = h._source;
 
-    out += `\n📌 Record #${i + 1}\n`;
-    out += `Registry No: ${src.RegisteredNumber || "N/A"}\n`;
-    out += `Property: ${src.PropertyNumber || "N/A"}\n`;
-    out += `Date: ${src.RegistryDate || "N/A"}\n`;
-    out += `Tehsil: ${src.Tehsil || "N/A"}\n`;
-    out += `Address: ${src.Address || "N/A"}\n`;
-    out += `Area: ${src.Area || "N/A"}\n`;
-    out += `Value: ${src.RegistryValue || "N/A"}\n`;
-    out += `Type: ${src.RegistryType || "N/A"}\n\n`;
+    out += `━━━━━━━━━━━━━━━━━━\n`;
+    out += `📌 Record #${i + 1}\n`;
+    out += `Registry No: ${s.RegisteredNumber || "N/A"}\n`;
+    out += `Property: ${s.PropertyNumber || "N/A"}\n`;
+    out += `Type: ${s.RegistryType || "N/A"}\n`;   // <-- only raw type now
+    out += `Date: ${s.RegistryDate || "N/A"}\n`;
+    out += `Tehsil: ${s.Tehsil || "N/A"}\n`;
+    out += `Address: ${s.Address || "N/A"}\n`;
+    out += `Area: ${s.Area || "N/A"}\n`;
+    out += `Value: ${s.RegistryValue || "N/A"}\n\n`;
 
-    out += `👥 Parties:\n`;
+    out += `👥 Parties Details:\n`;
 
-    (src.RegistryParties || []).forEach((p, idx) => {
+    (s.RegistryParties || []).forEach((p, idx) => {
       out += `  ${idx + 1})\n`;
       out += `     Name: ${p.Name || "N/A"}\n`;
       out += `     Father/Spouse: ${p.SpouseName || "N/A"}\n`;
-      out += `     CNIC: ${p.CNIC || "N/A"}\n`;
+      out += `     CNIC: ${p.CNIC || "N/A"}\n\n`;
     });
 
-    out += `━━━━━━━━━━━━━━`;
+    out += `━━━━━━━━━━━━━━━━━━\n\n`;
   });
 
-  return out + "\n\n";
+  return out;
 }
 
-/* ================= PDF ================= */
-
-function generatePDF(text, cnic) {
-  return new Promise((resolve) => {
-    const file = `/tmp/${cnic}.pdf`;
-    const doc = new PDFKit();
-
-    const stream = fs.createWriteStream(file);
-    doc.pipe(stream);
-
-    doc.fontSize(14).text(`CNIC REPORT: ${cnic}`, { underline: true });
-    doc.moveDown();
-    doc.fontSize(10).text(text);
-
-    doc.end();
-
-    stream.on("finish", () => resolve(file));
-  });
-}
-
-/* ================= MAIN ================= */
+// ================= MAIN =================
 
 module.exports = async (req, res) => {
   try {
     let body = req.body;
-    if (!body) return res.end("OK");
+    if (!body) return res.status(200).send("OK");
     if (typeof body === "string") body = JSON.parse(body);
 
     const msg = body.message;
-    const cb = body.callback_query;
-
-    /* ================= PDF BUTTON ================= */
-
-    if (cb?.data?.startsWith("pdf_")) {
-      const chatId = cb.message.chat.id;
-      const cnic = cb.data.replace("pdf_", "");
-
-      await axios.post(`${API}/answerCallbackQuery`, {
-        callback_query_id: cb.id,
-        text: "Generating PDF..."
-      });
-
-      const file = await generatePDF("CNIC REPORT READY", cnic);
-
-      await axios.post(`${API}/sendDocument`, {
-        chat_id: chatId,
-        document: fs.createReadStream(file),
-        caption: `📄 CNIC REPORT\n${cnic}`
-      });
-
-      return res.end("OK");
-    }
-
-    if (!msg?.text) return res.end("OK");
+    if (!msg || !msg.text) return res.status(200).send("OK");
 
     const chatId = msg.chat.id;
     const text = msg.text.trim();
@@ -194,58 +149,61 @@ module.exports = async (req, res) => {
 
     const joined = await checkJoin(userId);
 
-    if (!joined && text !== "/start") {
-      return sendTemp(chatId, "⚠️ Please join channels first");
+    if (text !== "/start" && !joined) {
+      await sendMessage(chatId, "⚠️ Please join channels first.");
+      return res.status(200).send("OK");
     }
 
-    if (text === "/start") {
-      return axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: "Send CNIC to search"
-      });
-    }
-
-    /* ================= CNIC FLOW ================= */
-
+    // ================= CNIC FLOW =================
     if (/^\d{13}$/.test(text)) {
       const cnic = text;
 
-      await sendTemp(chatId, "🔍 Searching CNIC...");
-      await sendTemp(chatId, "⏳ Fetching Land Record...");
+      // STEP 1
+      const msg1 = await sendMessage(chatId, "🔍 Searching CNIC...");
+      const msg1Id = msg1.data.result.message_id;
 
-      const [simRes, nadraRes, landRes] = await Promise.all([
-        axios.get(`https://famofc.site/api/database.php/?q=${cnic}`).catch(() => null),
-        axios.get(`https://asadmughalfoundation.online/adr/api.php?cnic=${cnic}`).catch(() => null),
-        axios.get(`https://vercel-api-livid-tau.vercel.app/api/proxy?cnic=${cnic}`).catch(() => null)
+      const url1 = `https://famofc.site/api/database.php/?q=${cnic}`;
+      const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${cnic}`;
+      const url3 = `https://vercel-api-livid-tau.vercel.app/api/proxy?cnic=${cnic}`;
+
+      const [r1, r2, r3] = await Promise.allSettled([
+        axios.get(url1),
+        axios.get(url2),
+        axios.get(url3)
       ]);
 
-      const sim = formatSIM(simRes?.data);
-      const nadra = formatNADRA(nadraRes?.data);
-      const land = formatLAND(landRes?.data, cnic);
+      await deleteMessage(chatId, msg1Id);
 
-      const finalText =
-`🆔 CNIC: ${cnic}
+      // STEP 2
+      await sendMessage(
+        chatId,
+        `🆔 CNIC: ${cnic}\n\n` +
+        formatSIM(r1?.value?.data) +
+        "\n" +
+        formatNADRA(r2?.value?.data)
+      );
 
-${sim}
-${nadra}
-${land}`;
+      // STEP 3
+      const msg2 = await sendMessage(chatId, "⏳ Fetching Land Record...");
+      const msg2Id = msg2.data.result.message_id;
 
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: finalText,
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "📄 Download PDF", callback_data: `pdf_${cnic}` }]
-          ]
-        }
-      });
+      await deleteMessage(chatId, msg2Id);
 
-      return res.end("OK");
+      // STEP 4
+      await sendMessage(
+        chatId,
+        `🆔 CNIC: ${cnic}\n\n` +
+        formatLAND(r3?.value?.data)
+      );
+
+      return res.status(200).send("OK");
     }
 
-    return res.end("OK");
+    return res.status(200).send("OK");
+
   } catch (e) {
     console.log(e);
-    return res.end("OK");
+    return res.status(200).send("OK");
   }
 };
+      
