@@ -1,35 +1,40 @@
+const express = require('express');
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
-const express = require('express');
-const app = express();
 
-// Bot Token
-const BOT_TOKEN = process.env.BOT_TOKEN || '8914391257:AAGxjKK2sZ8DFNR5V4HQPc3_4a2TktTU0lo';
+// Create Express app
+const app = express();
+app.use(express.json());
+
+// Bot setup
+const BOT_TOKEN = process.env.BOT_TOKEN;
+if (!BOT_TOKEN) {
+  console.error('❌ BOT_TOKEN not found');
+  process.exit(1);
+}
+
 const bot = new Telegraf(BOT_TOKEN);
 
 // 👑 ADMINS
-const ADMIN_IDS = [
-  6581234524,
-  7133052934,
-  6343143457
-];
+const ADMIN_IDS = [6581234524, 7133052934, 6343143457];
 
 // 📢 CHANNELS
-const CHANNELS = [
-  "@AZ_Tricks",
-  "@Hacking_Tricks0",
-  "@a2z_hacking"
-];
+const CHANNELS = ["@AZ_Tricks", "@Hacking_Tricks0", "@a2z_hacking"];
 
-// API Base URL
+// API URL
 const API_URL = 'https://famofc.site/api/database.php';
 
-// Check if user is subscribed to all channels
+// ===== BOT FUNCTIONS (Copy from previous code) =====
 async function checkSubscription(userId) {
   try {
     for (const channel of CHANNELS) {
-      const chatMember = await bot.telegram.getChatMember(channel, userId);
-      if (chatMember.status === 'left' || chatMember.status === 'kicked') {
+      try {
+        const chatMember = await bot.telegram.getChatMember(channel, userId);
+        if (chatMember.status === 'left' || chatMember.status === 'kicked') {
+          return false;
+        }
+      } catch (err) {
+        console.log(`Channel check error for ${channel}:`, err.message);
         return false;
       }
     }
@@ -40,18 +45,19 @@ async function checkSubscription(userId) {
   }
 }
 
-// Check if user is admin
 function isAdmin(userId) {
   return ADMIN_IDS.includes(userId);
 }
 
-// Format records for display
-function formatRecords(records, searchType, query) {
+function formatRecords(data, query) {
+  const records = data.records || [];
+  const searchType = data.search_type || 'unknown';
+  
   let result = `🔍 *Search Results*\n`;
   result += `━━━━━━━━━━━━━━━━━━━━━\n`;
-  result += `📌 *Search Type:* ${searchType}\n`;
+  result += `📌 *Type:* ${searchType.toUpperCase()}\n`;
   result += `🔎 *Query:* ${query}\n`;
-  result += `📊 *Records Found:* ${records.length}\n`;
+  result += `📊 *Records:* ${records.length}\n`;
   result += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   if (records.length === 0) {
@@ -76,20 +82,26 @@ function formatRecords(records, searchType, query) {
   return result;
 }
 
-// Fetch data from API
 async function fetchData(query) {
   try {
     const response = await axios.get(API_URL, {
-      params: { q: query }
+      params: { q: query },
+      timeout: 30000
     });
-    return response.data;
+    
+    if (response.data && response.data.success) {
+      return response.data;
+    } else {
+      console.error('API returned unsuccessful:', response.data);
+      return null;
+    }
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('API Error:', error.message);
     return null;
   }
 }
 
-// Start command
+// ===== BOT COMMANDS =====
 bot.start(async (ctx) => {
   const userId = ctx.from.id;
   const isSubscribed = await checkSubscription(userId);
@@ -97,27 +109,24 @@ bot.start(async (ctx) => {
 
   if (!isSubscribed && !isAdminUser) {
     const channelsList = CHANNELS.map(ch => `• ${ch}`).join('\n');
-    const message = `⚠️ *Access Denied!*\n\n` +
-      `You must join the following channels to use this bot:\n\n` +
-      `${channelsList}\n\n` +
-      `After joining, click /start again.`;
+    const message = `⚠️ *Access Denied!*\n\nYou must join the following channels to use this bot:\n\n${channelsList}\n\nAfter joining, click /start again.`;
+
+    const buttons = CHANNELS.map(ch => 
+      Markup.button.url(ch, `https://t.me/${ch.replace('@', '')}`)
+    );
+    
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 2) {
+      rows.push(buttons.slice(i, i + 2));
+    }
 
     return ctx.reply(message, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        CHANNELS.map(ch => Markup.button.url(ch, `https://t.me/${ch.replace('@', '')}`))
-      ])
+      ...Markup.inlineKeyboard(rows)
     });
   }
 
-  const welcomeMessage = `🤖 *Welcome to AZ TOOLKIT!*\n\n` +
-    `I can search for information using CNIC or Phone Number.\n\n` +
-    `📌 *How to use:*\n` +
-    `Send me a CNIC or Phone Number\n` +
-    `Example:\n` +
-    `• CNIC: 3220282538606\n` +
-    `• Phone: 03086756345\n\n` +
-    `⚡ *Bot is ready to use!*`;
+  const welcomeMessage = `🤖 *Welcome to AZ TOOLKIT!*\n\nI can search for information using CNIC or Phone Number.\n\n📌 *How to use:*\nSend me a CNIC or Phone Number\n\n📱 *Phone:* 03086756345\n🆔 *CNIC:* 3220282538606\n\n⚡ *Bot is ready to use!*`;
 
   await ctx.reply(welcomeMessage, {
     parse_mode: 'Markdown',
@@ -128,91 +137,87 @@ bot.start(async (ctx) => {
   });
 });
 
-// Handle text messages
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
   const query = ctx.message.text.trim();
   const isSubscribed = await checkSubscription(userId);
   const isAdminUser = isAdmin(userId);
 
-  // Check subscription
   if (!isSubscribed && !isAdminUser) {
     const channelsList = CHANNELS.map(ch => `• ${ch}`).join('\n');
-    const message = `⚠️ *Access Denied!*\n\n` +
-      `You must join all channels to use this bot:\n\n` +
-      `${channelsList}\n\n` +
-      `After joining, try again.`;
+    const message = `⚠️ *Access Denied!*\n\nYou must join all channels to use this bot:\n\n${channelsList}\n\nAfter joining, try again.`;
+
+    const buttons = CHANNELS.map(ch => 
+      Markup.button.url(ch, `https://t.me/${ch.replace('@', '')}`)
+    );
+    
+    const rows = [];
+    for (let i = 0; i < buttons.length; i += 2) {
+      rows.push(buttons.slice(i, i + 2));
+    }
 
     return ctx.reply(message, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        CHANNELS.map(ch => Markup.button.url(ch, `https://t.me/${ch.replace('@', '')}`))
-      ])
+      ...Markup.inlineKeyboard(rows)
     });
   }
 
-  // Validate input
+  if (query.startsWith('/')) {
+    return;
+  }
+
   const isPhone = /^03\d{9}$/.test(query) || /^3\d{9}$/.test(query);
   const isCNIC = /^\d{13}$/.test(query);
 
   if (!isPhone && !isCNIC) {
     return ctx.reply(
-      '❌ *Invalid Input!*\n\n' +
-      'Please send a valid:\n' +
-      '• CNIC (13 digits)\n' +
-      '• Phone Number (03XXXXXXXXX)',
+      '❌ *Invalid Input!*\n\nPlease send a valid:\n• CNIC (13 digits)\n• Phone Number (03XXXXXXXXX)\n\nExample:\n📱 03086756345\n🆔 3220282538606',
       { parse_mode: 'Markdown' }
     );
   }
 
-  // Send processing message
-  const processingMsg = await ctx.reply('⏳ *Processing your request...*', {
-    parse_mode: 'Markdown'
-  });
+  await ctx.sendChatAction('typing');
 
   try {
-    // Fetch data from API
-    const data = await fetchData(query);
+    const apiResponse = await fetchData(query);
 
-    if (!data || !data.success) {
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        processingMsg.message_id,
-        null,
-        '❌ *Error:* Failed to fetch data or API returned error.',
+    if (!apiResponse || !apiResponse.success) {
+      return ctx.reply(
+        '❌ *Error:* Failed to fetch data from API.\nPlease try again later or contact admin.',
         { parse_mode: 'Markdown' }
       );
-      return;
     }
 
-    const records = data.data.records || [];
-    const searchType = data.data.search_type || 'unknown';
-    const inputQuery = data.data.input_query || query;
+    const records = apiResponse.data.records || [];
+    const searchType = apiResponse.data.search_type || 'unknown';
+    
+    if (records.length === 0) {
+      return ctx.reply(
+        '❌ *No records found!*\n\n🔎 *Query:* ${query}\n📌 *Type:* ${searchType}\n\nTry again with different input.',
+        { parse_mode: 'Markdown' }
+      );
+    }
 
-    // Format and send results
-    const resultText = formatRecords(records, searchType, inputQuery);
-
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      processingMsg.message_id,
-      null,
-      resultText,
-      { parse_mode: 'Markdown' }
-    );
+    const resultText = formatRecords(apiResponse.data, query);
+    
+    if (resultText.length > 4096) {
+      const chunks = resultText.match(/[\s\S]{1,4000}/g) || [];
+      for (const chunk of chunks) {
+        await ctx.reply(chunk, { parse_mode: 'Markdown' });
+      }
+    } else {
+      await ctx.reply(resultText, { parse_mode: 'Markdown' });
+    }
 
   } catch (error) {
-    console.error('Error:', error);
-    await ctx.telegram.editMessageText(
-      ctx.chat.id,
-      processingMsg.message_id,
-      null,
+    console.error('Error processing request:', error);
+    await ctx.reply(
       '❌ *Error occurred while processing your request.*\nPlease try again later.',
       { parse_mode: 'Markdown' }
     );
   }
 });
 
-// Admin commands
 bot.command('admin', async (ctx) => {
   const userId = ctx.from.id;
   if (!isAdmin(userId)) {
@@ -221,52 +226,52 @@ bot.command('admin', async (ctx) => {
     });
   }
 
-  const adminMenu = `👑 *Admin Panel*\n\n` +
-    `📊 *Bot Status:* Active\n` +
-    `👥 *Total Admins:* ${ADMIN_IDS.length}\n` +
-    `📢 *Channels:* ${CHANNELS.length}\n\n` +
-    `🛠 *Commands:*\n` +
-    `/stats - View bot stats\n` +
-    `/broadcast - Send message to all users (coming soon)`;
+  const adminMenu = `👑 *Admin Panel*\n━━━━━━━━━━━━━━━━━━━━━\n📊 *Status:* 🟢 Active\n👥 *Admins:* ${ADMIN_IDS.length}\n📢 *Channels:* ${CHANNELS.length}\n━━━━━━━━━━━━━━━━━━━━━\n🤖 *AZ TOOLKIT v2.0*`;
 
-  await ctx.reply(adminMenu, { parse_mode: 'Markdown' });
+  await ctx.reply(adminMenu, { 
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.url('📢 WhatsApp Channel', 'https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D')]
+    ])
+  });
 });
 
-// Stats command (admin only)
 bot.command('stats', async (ctx) => {
   const userId = ctx.from.id;
   if (!isAdmin(userId)) {
     return ctx.reply('⛔ *Unauthorized!*', { parse_mode: 'Markdown' });
   }
 
-  const stats = `📊 *Bot Statistics*\n` +
-    `━━━━━━━━━━━━━━━━━━━━━\n` +
-    `📅 *Status:* Online\n` +
-    `👑 *Admins:* ${ADMIN_IDS.length}\n` +
-    `📢 *Channels:* ${CHANNELS.length}\n` +
-    `⚡ *API:* Active\n` +
-    `━━━━━━━━━━━━━━━━━━━━━\n` +
-    `🤖 *AZ TOOLKIT v1.0*`;
+  const stats = `📊 *Bot Statistics*\n━━━━━━━━━━━━━━━━━━━━━\n📅 *Status:* 🟢 Online\n👑 *Admins:* ${ADMIN_IDS.length}\n📢 *Channels:* ${CHANNELS.length}\n⚡ *API:* Active\n🕐 *Uptime:* ${Math.floor(process.uptime())}s\n━━━━━━━━━━━━━━━━━━━━━\n🤖 *AZ TOOLKIT v2.0*`;
 
   await ctx.reply(stats, { parse_mode: 'Markdown' });
 });
 
-// Health check for Vercel
-app.get('/', (req, res) => {
-  res.send('🤖 AZ TOOLKIT Bot is running!');
+// ===== WEBHOOK ENDPOINTS =====
+// Main webhook endpoint - Telegram sends updates here
+app.post('/bot', (req, res) => {
+  bot.handleUpdate(req.body, res);
 });
 
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    bot: 'AZ TOOLKIT',
-    admins: ADMIN_IDS.length,
-    channels: CHANNELS.length
+// Health check for GET requests
+app.get('/bot', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'Webhook endpoint is working',
+    bot: 'AZ TOOLKIT'
   });
 });
 
-// Webhook for Vercel
-app.use(bot.webhookCallback('/webhook'));
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    bot: 'AZ TOOLKIT',
+    version: '2.0'
+  });
+});
 
-// Export for Vercel
+// ===== EXPORT FOR VERCEL =====
 module.exports = app;
+
+// IMPORTANT: Do NOT call bot.launch() here - Vercel handles it
