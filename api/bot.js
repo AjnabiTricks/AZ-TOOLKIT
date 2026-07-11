@@ -1,8 +1,11 @@
-const axios = require("axios");
+const { Telegraf, Markup } = require('telegraf');
+const axios = require('axios');
+const express = require('express');
+const app = express();
 
-// 🔐 BOT TOKEN
-const TOKEN = "8914391257:AAGxjKK2sZ8DFNR5V4HQPc3_4a2TktTU0lo";
-const API = `https://api.telegram.org/bot${TOKEN}`;
+// Bot Token
+const BOT_TOKEN = process.env.BOT_TOKEN || '8914391257:AAGxjKK2sZ8DFNR5V4HQPc3_4a2TktTU0lo';
+const bot = new Telegraf(BOT_TOKEN);
 
 // 👑 ADMINS
 const ADMIN_IDS = [
@@ -11,13 +14,6 @@ const ADMIN_IDS = [
   6343143457
 ];
 
-// 👥 USERS
-const USERS = new Set();
-
-function isAdmin(id) {
-  return ADMIN_IDS.includes(Number(id));
-}
-
 // 📢 CHANNELS
 const CHANNELS = [
   "@AZ_Tricks",
@@ -25,238 +21,252 @@ const CHANNELS = [
   "@a2z_hacking"
 ];
 
-// 🔒 CHECK JOIN
-async function checkJoin(userId) {
+// API Base URL
+const API_URL = 'https://famofc.site/api/database.php';
+
+// Check if user is subscribed to all channels
+async function checkSubscription(userId) {
   try {
-    for (const ch of CHANNELS) {
-      const res = await axios.get(
-        `${API}/getChatMember?chat_id=${ch}&user_id=${userId}`
-      );
-
-      const status = res.data.result.status;
-
-      if (!["member", "creator", "administrator"].includes(status)) {
+    for (const channel of CHANNELS) {
+      const chatMember = await bot.telegram.getChatMember(channel, userId);
+      if (chatMember.status === 'left' || chatMember.status === 'kicked') {
         return false;
       }
     }
     return true;
-  } catch {
+  } catch (error) {
+    console.error('Subscription check error:', error);
     return false;
   }
 }
 
-// 📢 JOIN MESSAGE
-async function sendJoin(chatId) {
-  return axios.post(`${API}/sendMessage`, {
-    chat_id: chatId,
-    text: "⚠️ Bot use karne ke liye tamam channels join karein.",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "📢 AZ Tricks", url: "https://t.me/AZ_Tricks" }],
-        [{ text: "📢 Hacking Tricks", url: "https://t.me/Hacking_Tricks0" }],
-        [{ text: "📢 A2Z Hacking", url: "https://t.me/a2z_hacking" }]
-      ]
-    }
-  });
+// Check if user is admin
+function isAdmin(userId) {
+  return ADMIN_IDS.includes(userId);
 }
 
-// 📢 FOOTER MESSAGE (NEW)
-const FOOTER = `
-━━━━━━━━━━━━━━
-📢 WhatsApp Channel Join Karen:
-https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D
-`;
+// Format records for display
+function formatRecords(records, searchType, query) {
+  let result = `🔍 *Search Results*\n`;
+  result += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  result += `📌 *Search Type:* ${searchType}\n`;
+  result += `🔎 *Query:* ${query}\n`;
+  result += `📊 *Records Found:* ${records.length}\n`;
+  result += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-module.exports = async (req, res) => {
-  try {
-
-    let body = req.body;
-    if (!body) return res.status(200).send("OK");
-    if (typeof body === "string") body = JSON.parse(body);
-
-    const msg = body.message;
-    if (!msg || !msg.text) return res.status(200).send("OK");
-
-    const chatId = msg.chat.id;
-    const text = msg.text.trim();
-    const userId = msg.from.id;
-
-    USERS.add(userId);
-
-    const joined = await checkJoin(userId);
-
-    if (text !== "/start" && !joined) {
-      await sendJoin(chatId);
-      return res.status(200).send("OK");
-    }
-
-    // 🔹 START
-    if (text === "/start") {
-
-      if (!joined) {
-        await sendJoin(chatId);
-        return res.status(200).send("OK");
-      }
-
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: "👋 Welcome!\nSend CNIC or Mobile Number"
-      });
-
-      return res.status(200).send("OK");
-    }
-
-    // 👑 ADMIN
-    if (text === "/admin") {
-
-      if (!isAdmin(userId)) {
-        await axios.post(`${API}/sendMessage`, {
-          chat_id: chatId,
-          text: "❌ Access Denied"
-        });
-        return res.status(200).send("OK");
-      }
-
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: `👑 ADMIN PANEL
-
-📊 /stats
-👥 /users`
-      });
-
-      return res.status(200).send("OK");
-    }
-
-    // 📊 STATS
-    if (text === "/stats") {
-
-      if (!isAdmin(userId)) return res.status(200).send("OK");
-
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: `📊 BOT STATS
-
-👥 Users: ${USERS.size}
-⚡ Status: Active`
-      });
-
-      return res.status(200).send("OK");
-    }
-
-    // 👥 USERS
-    if (text === "/users") {
-
-      if (!isAdmin(userId)) return res.status(200).send("OK");
-
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: `👥 Total Users: ${USERS.size}`
-      });
-
-      return res.status(200).send("OK");
-    }
-
-    // 📱 PHONE SEARCH
-    if (/^\d{10,11}$/.test(text)) {
-
-      const phone = text.startsWith("0") ? text : "0" + text;
-
-      const url = `https://famofc.site/api/database.php/?q=${phone}`;
-      const resp = await axios.get(url);
-      const data = resp.data;
-
-      if (!data.success) {
-        await axios.post(`${API}/sendMessage`, {
-          chat_id: chatId,
-          text: "❌ No record found"
-        });
-        return res.status(200).send("OK");
-      }
-
-      let out = "📱 PHONE RESULT\n\n";
-
-      data.data.records.forEach((r, i) => {
-        out += `Record ${i + 1}\n`;
-        out += `Name: ${r.full_name}\n`;
-        out += `Phone: ${r.phone}\n`;
-        out += `CNIC: ${r.cnic}\n`;
-        out += `Address: ${r.address}\n\n`;
-      });
-
-      out += FOOTER;
-
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: out
-      });
-
-      return res.status(200).send("OK");
-    }
-
-    // 🆔 CNIC SEARCH (DUAL API)
-    if (/^\d{13}$/.test(text)) {
-
-      const url1 = `https://famofc.site/api/database.php/?q=${text}`;
-      const url2 = `https://asadmughalfoundation.online/adr/api.php?cnic=${text}`;
-
-      const [r1, r2] = await Promise.all([
-        axios.get(url1).catch(() => null),
-        axios.get(url2).catch(() => null)
-      ]);
-
-      const data1 = r1?.data;
-      const data2 = r2?.data;
-
-      let out = "🆔 CNIC RESULT (COMBINED)\n\n";
-
-      // SIM INFORMATIONS
-      if (data1?.success && data1.data.records.length > 0) {
-        out += "🔵 SIM INFORMATION\n\n";
-
-        data1.data.records.forEach((r, i) => {
-          out += `Record ${i + 1}\n`;
-          out += `Name: ${r.full_name}\n`;
-          out += `Phone: ${r.phone}\n`;
-          out += `CNIC: ${r.cnic}\n`;
-          out += `Address: ${r.address}\n\n`;
-        });
-      } else {
-        out += "🔵 SIM INFORMATION: No Record Found\n\n";
-      }
-
-      // NADRA ADDRESS
-      if (Array.isArray(data2) && data2.length > 0) {
-        out += "🟢 NADRA ADDRESS\n\n";
-
-        data2.forEach((r, i) => {
-          out += `Record ${i + 1}\n`;
-          out += `Name: ${r.NAME}\n`;
-          out += `CNIC: ${r.IDENTIFICATION_NO}\n`;
-          out += `Present Address: ${r.PRESENT_ADDRESS}\n`;
-          out += `Permanent Address: ${r.PERMANANT_ADDRESS}\n`;
-          out += `Status: ${r.STATUS}\n\n`;
-        });
-      } else {
-        out += "🟢 NADRA ADDRESS: No Record Found\n\n";
-      }
-
-      // 📢 FOOTER ADDED HERE
-      out += FOOTER;
-
-      await axios.post(`${API}/sendMessage`, {
-        chat_id: chatId,
-        text: out
-      });
-
-      return res.status(200).send("OK");
-    }
-
-    return res.status(200).send("OK");
-
-  } catch (e) {
-    console.log(e);
-    return res.status(200).send("OK");
+  if (records.length === 0) {
+    result += `❌ *No records found!*`;
+    return result;
   }
-};
-  
+
+  records.forEach((record, index) => {
+    result += `👤 *Record #${index + 1}*\n`;
+    result += `📛 *Name:* ${record.full_name || 'N/A'}\n`;
+    result += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
+    result += `🆔 *CNIC:* ${record.cnic || 'N/A'}\n`;
+    result += `📍 *Address:* ${record.address || 'N/A'}\n`;
+    result += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+  });
+
+  result += `📢 *WhatsApp Channel:*\n`;
+  result += `https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D\n`;
+  result += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  result += `🤖 *Powered By AZ TOOLKIT*`;
+
+  return result;
+}
+
+// Fetch data from API
+async function fetchData(query) {
+  try {
+    const response = await axios.get(API_URL, {
+      params: { q: query }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('API Error:', error);
+    return null;
+  }
+}
+
+// Start command
+bot.start(async (ctx) => {
+  const userId = ctx.from.id;
+  const isSubscribed = await checkSubscription(userId);
+  const isAdminUser = isAdmin(userId);
+
+  if (!isSubscribed && !isAdminUser) {
+    const channelsList = CHANNELS.map(ch => `• ${ch}`).join('\n');
+    const message = `⚠️ *Access Denied!*\n\n` +
+      `You must join the following channels to use this bot:\n\n` +
+      `${channelsList}\n\n` +
+      `After joining, click /start again.`;
+
+    return ctx.reply(message, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        CHANNELS.map(ch => Markup.button.url(ch, `https://t.me/${ch.replace('@', '')}`))
+      ])
+    });
+  }
+
+  const welcomeMessage = `🤖 *Welcome to AZ TOOLKIT!*\n\n` +
+    `I can search for information using CNIC or Phone Number.\n\n` +
+    `📌 *How to use:*\n` +
+    `Send me a CNIC or Phone Number\n` +
+    `Example:\n` +
+    `• CNIC: 3220282538606\n` +
+    `• Phone: 03086756345\n\n` +
+    `⚡ *Bot is ready to use!*`;
+
+  await ctx.reply(welcomeMessage, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.url('📢 Join WhatsApp Channel', 'https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D')],
+      [Markup.button.url('🔰 My Channel', 'https://t.me/AZ_Tricks')]
+    ])
+  });
+});
+
+// Handle text messages
+bot.on('text', async (ctx) => {
+  const userId = ctx.from.id;
+  const query = ctx.message.text.trim();
+  const isSubscribed = await checkSubscription(userId);
+  const isAdminUser = isAdmin(userId);
+
+  // Check subscription
+  if (!isSubscribed && !isAdminUser) {
+    const channelsList = CHANNELS.map(ch => `• ${ch}`).join('\n');
+    const message = `⚠️ *Access Denied!*\n\n` +
+      `You must join all channels to use this bot:\n\n` +
+      `${channelsList}\n\n` +
+      `After joining, try again.`;
+
+    return ctx.reply(message, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        CHANNELS.map(ch => Markup.button.url(ch, `https://t.me/${ch.replace('@', '')}`))
+      ])
+    });
+  }
+
+  // Validate input
+  const isPhone = /^03\d{9}$/.test(query) || /^3\d{9}$/.test(query);
+  const isCNIC = /^\d{13}$/.test(query);
+
+  if (!isPhone && !isCNIC) {
+    return ctx.reply(
+      '❌ *Invalid Input!*\n\n' +
+      'Please send a valid:\n' +
+      '• CNIC (13 digits)\n' +
+      '• Phone Number (03XXXXXXXXX)',
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  // Send processing message
+  const processingMsg = await ctx.reply('⏳ *Processing your request...*', {
+    parse_mode: 'Markdown'
+  });
+
+  try {
+    // Fetch data from API
+    const data = await fetchData(query);
+
+    if (!data || !data.success) {
+      await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        processingMsg.message_id,
+        null,
+        '❌ *Error:* Failed to fetch data or API returned error.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    const records = data.data.records || [];
+    const searchType = data.data.search_type || 'unknown';
+    const inputQuery = data.data.input_query || query;
+
+    // Format and send results
+    const resultText = formatRecords(records, searchType, inputQuery);
+
+    await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      processingMsg.message_id,
+      null,
+      resultText,
+      { parse_mode: 'Markdown' }
+    );
+
+  } catch (error) {
+    console.error('Error:', error);
+    await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      processingMsg.message_id,
+      null,
+      '❌ *Error occurred while processing your request.*\nPlease try again later.',
+      { parse_mode: 'Markdown' }
+    );
+  }
+});
+
+// Admin commands
+bot.command('admin', async (ctx) => {
+  const userId = ctx.from.id;
+  if (!isAdmin(userId)) {
+    return ctx.reply('⛔ *You are not authorized to use this command.*', {
+      parse_mode: 'Markdown'
+    });
+  }
+
+  const adminMenu = `👑 *Admin Panel*\n\n` +
+    `📊 *Bot Status:* Active\n` +
+    `👥 *Total Admins:* ${ADMIN_IDS.length}\n` +
+    `📢 *Channels:* ${CHANNELS.length}\n\n` +
+    `🛠 *Commands:*\n` +
+    `/stats - View bot stats\n` +
+    `/broadcast - Send message to all users (coming soon)`;
+
+  await ctx.reply(adminMenu, { parse_mode: 'Markdown' });
+});
+
+// Stats command (admin only)
+bot.command('stats', async (ctx) => {
+  const userId = ctx.from.id;
+  if (!isAdmin(userId)) {
+    return ctx.reply('⛔ *Unauthorized!*', { parse_mode: 'Markdown' });
+  }
+
+  const stats = `📊 *Bot Statistics*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `📅 *Status:* Online\n` +
+    `👑 *Admins:* ${ADMIN_IDS.length}\n` +
+    `📢 *Channels:* ${CHANNELS.length}\n` +
+    `⚡ *API:* Active\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🤖 *AZ TOOLKIT v1.0*`;
+
+  await ctx.reply(stats, { parse_mode: 'Markdown' });
+});
+
+// Health check for Vercel
+app.get('/', (req, res) => {
+  res.send('🤖 AZ TOOLKIT Bot is running!');
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    bot: 'AZ TOOLKIT',
+    admins: ADMIN_IDS.length,
+    channels: CHANNELS.length
+  });
+});
+
+// Webhook for Vercel
+app.use(bot.webhookCallback('/webhook'));
+
+// Export for Vercel
+module.exports = app;
