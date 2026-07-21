@@ -31,66 +31,88 @@ module.exports = async (req, res) => {
   }
 };
 
-// Bot commands
+// ============================================
+// COMMANDS
+// ============================================
+
+// /start
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   bot.sendMessage(chatId, `
 👋 *Welcome to AZ Toolkit Bot!*
 
-🔍 *Available Commands:*
+🔍 *Just send me any CNIC or Phone Number!*
 
-📱 *Sim Details*
-/sim <phone> or /sim <cnic>
-Example: /sim 03086756345
+📱 *Phone:* 03086756345
+🪪 *CNIC:* 3440106097263
+🪪 *CNIC with dashes:* 34401-0609726-3
 
-🏠 *Land Record*
-/land <cnic>
-Example: /land 3230437615645
-
-👩‍⚕️ *Nurse Record*
-/nurse <cnic>
-Example: /nurse 4410307154760
-
-ℹ️ *Help*
-/help - Show this message
+I'll auto-detect and search all databases!
 
 *Powered by:* @AZ_Tricks
   `, { parse_mode: 'Markdown' });
 });
 
+// /help
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
   bot.sendMessage(chatId, `
 📚 *How to Use:*
 
-1️⃣ *Sim Details* - /sim 03086756345
-   (Search by Phone or CNIC)
+Just send me any of these:
+📱 *Phone Number:* 03086756345
+🪪 *CNIC:* 3440106097263
+🪪 *CNIC with dashes:* 34401-0609726-3
 
-2️⃣ *Land Record* - /land 3230437615645
-   (Search by CNIC)
-
-3️⃣ *Nurse Record* - /nurse 4410307154760
-   (Search by CNIC)
-
-*Note:* CNIC can be with or without dashes.
+I'll automatically:
+✅ Search SIM details
+✅ Search Land Record (if CNIC)
+✅ Search Nurse Record (if CNIC)
 
 *Powered by:* @AZ_Tricks
   `, { parse_mode: 'Markdown' });
 });
 
 // ============================================
-// 1. SIM DETAILS API (Phone or CNIC)
+// HELPERS
 // ============================================
-bot.onText(/\/sim (.+)/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const query = match[1].trim();
 
-  if (!query) {
-    return bot.sendMessage(chatId, '❌ Please provide a phone number or CNIC.\nExample: /sim 03086756345');
+function cleanCNIC(value) {
+  return value.replace(/[-\s]/g, '');
+}
+
+function isPhoneNumber(query) {
+  const cleaned = query.replace(/\D/g, '');
+  return cleaned.length === 11 && (cleaned.startsWith('03') || cleaned.startsWith('3'));
+}
+
+function isCNIC(query) {
+  const cleaned = query.replace(/\D/g, '');
+  return cleaned.length === 13;
+}
+
+function getRoleLabel(typeId) {
+  const roles = {
+    1: 'Seller',
+    2: 'Buyer',
+    4: 'Witness',
+    31: 'Party'
+  };
+  return roles[typeId] || `Role ${typeId}`;
+}
+
+function formatCNIC(cnic) {
+  const clean = cnic.replace(/\D/g, '');
+  if (clean.length === 13) {
+    return clean.replace(/(\d{5})(\d{7})(\d{1})/, '$1-$2-$3');
   }
+  return cnic;
+}
 
-  const loadingMsg = await bot.sendMessage(chatId, '⏳ Fetching SIM details...');
-
+// ============================================
+// 1. SIM DETAILS API
+// ============================================
+async function fetchSimDetails(query) {
   try {
     const response = await axios.get(`${SIM_API}?q=${encodeURIComponent(query)}`, {
       timeout: 30000,
@@ -99,224 +121,281 @@ bot.onText(/\/sim (.+)/, async (msg, match) => {
         'Accept': 'application/json'
       }
     });
-
     const result = response.data;
-
     if (result.success && result.data.records_count > 0) {
-      let message = `📱 *SIM Details*\n`;
-      message += `━━━━━━━━━━━━━━━━\n`;
-      message += `🔍 *Search:* ${query}\n`;
-      message += `📊 *Records Found:* ${result.data.records_count}\n\n`;
-
-      result.data.records.forEach((record, index) => {
-        message += `👤 *Name:* ${record.full_name || 'N/A'}\n`;
-        message += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
-        message += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
-        message += `📍 *Address:* ${record.address || 'N/A'}\n`;
-        if (index < result.data.records_count - 1) {
-          message += `─────────────────\n`;
-        }
-      });
-
-      message += `\n━━━━━━━━━━━━━━━━\n`;
-      message += `📡 *Source:* ${result.data.data_source || 'N/A'}\n`;
-      message += `🔗 *Credit:* ${result.credit || 'FAMOFC'}\n`;
-
-      await bot.editMessageText(message, {
-        chat_id: chatId,
-        message_id: loadingMsg.message_id,
-        parse_mode: 'Markdown'
-      });
-    } else {
-      await bot.editMessageText(`❌ No records found for: *${query}*`, {
-        chat_id: chatId,
-        message_id: loadingMsg.message_id,
-        parse_mode: 'Markdown'
-      });
+      return result.data.records;
     }
+    return [];
   } catch (error) {
     console.error('SIM API Error:', error.message);
-    await bot.editMessageText(`❌ Error fetching SIM details. Please try again later.\n\nError: ${error.message}`, {
-      chat_id: chatId,
-      message_id: loadingMsg.message_id
-    });
+    return [];
   }
-});
+}
 
 // ============================================
-// 2. LAND RECORD API (CNIC)
+// 2. LAND RECORD API
 // ============================================
-bot.onText(/\/land (.+)/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  let cnic = match[1].trim();
-
-  if (!cnic) {
-    return bot.sendMessage(chatId, '❌ Please provide a CNIC.\nExample: /land 3230437615645');
-  }
-
-  // Remove dashes
-  const cleanCNIC = cnic.replace(/-/g, '');
-
-  if (!/^\d{13}$/.test(cleanCNIC)) {
-    return bot.sendMessage(chatId, '❌ Invalid CNIC format. Must be 13 digits.');
-  }
-
-  const loadingMsg = await bot.sendMessage(chatId, '⏳ Fetching Land Record...');
-
+async function fetchLandRecord(cnic) {
   try {
-    const response = await axios.get(`${LAND_API}?cnic=${cleanCNIC}`, {
+    const clean = cleanCNIC(cnic);
+    if (!/^\d{13}$/.test(clean)) return [];
+
+    const response = await axios.get(`${LAND_API}?cnic=${clean}`, {
       timeout: 30000
     });
+    const data = response.data;
 
-    const result = response.data;
-
-    if (result.success && result.total > 0) {
-      let message = `🏠 *Land Record*\n`;
-      message += `━━━━━━━━━━━━━━━━\n`;
-      message += `🪪 *CNIC:* ${cleanCNIC}\n`;
-      message += `📊 *Records Found:* ${result.total}\n\n`;
-
-      result.data.forEach((item, index) => {
-        const src = item._source || {};
-        const parties = src.RegistryParties || [];
-
-        message += `📄 *Registry #${src.Id || 'N/A'}*\n`;
-        message += `📅 *Date:* ${src.RegistryDate || 'N/A'}\n`;
-        message += `🏷️ *Type:* ${src.RegistryType || 'N/A'}\n`;
-        message += `📍 *Mauza:* ${src.MauzaName || 'N/A'}\n`;
-        message += `🏛️ *Tehsil:* ${src.Tehsil || 'N/A'}\n`;
-        message += `📋 *Reg. Number:* ${src.RegisteredNumber || 'N/A'}\n`;
-        message += `📐 *Area:* ${src.Area || 'N/A'}\n`;
-        message += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : 'N/A'}\n`;
-        message += `🏠 *Property:* ${src.PropertyNumber || 'N/A'}\n`;
-
-        if (parties.length > 0) {
-          message += `\n👥 *Parties:*\n`;
-          parties.forEach(p => {
-            const role = p.RegistryPartiesTypeId === 1 ? 'Seller' :
-                        p.RegistryPartiesTypeId === 2 ? 'Buyer' :
-                        p.RegistryPartiesTypeId === 4 ? 'Witness' : 'Party';
-            message += `  • ${p.Name || 'N/A'} (${role}) - ${p.CNIC || 'N/A'}\n`;
-          });
-        }
-
-        if (index < result.data.length - 1) {
-          message += `─────────────────\n`;
-        }
-      });
-
-      message += `\n━━━━━━━━━━━━━━━━\n`;
-      message += `🔗 *Credit:* ${result.credit || 'AZ Tricks'}`;
-
-      await bot.editMessageText(message, {
-        chat_id: chatId,
-        message_id: loadingMsg.message_id,
-        parse_mode: 'Markdown'
-      });
-    } else {
-      await bot.editMessageText(`❌ No land records found for CNIC: *${cleanCNIC}*`, {
-        chat_id: chatId,
-        message_id: loadingMsg.message_id,
-        parse_mode: 'Markdown'
-      });
+    if (data.success && data.data?.length > 0) {
+      return data.data;
     }
+    return [];
   } catch (error) {
     console.error('Land API Error:', error.message);
-    await bot.editMessageText(`❌ Error fetching land record. Please try again later.\n\nError: ${error.message}`, {
-      chat_id: chatId,
-      message_id: loadingMsg.message_id
-    });
+    return [];
   }
-});
+}
 
 // ============================================
-// 3. NURSE RECORD API (CNIC)
+// 3. NURSE RECORD API
 // ============================================
-bot.onText(/\/nurse (.+)/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  let cnic = match[1].trim();
-
-  if (!cnic) {
-    return bot.sendMessage(chatId, '❌ Please provide a CNIC.\nExample: /nurse 4410307154760');
-  }
-
-  // Remove dashes
-  const cleanCNIC = cnic.replace(/-/g, '');
-
-  if (!/^\d{13}$/.test(cleanCNIC)) {
-    return bot.sendMessage(chatId, '❌ Invalid CNIC format. Must be 13 digits.');
-  }
-
-  const loadingMsg = await bot.sendMessage(chatId, '⏳ Fetching Nurse Record...');
-
+async function fetchNurseRecord(cnic) {
   try {
-    const response = await axios.get(`${NURSE_API}?cnic=${cleanCNIC}`, {
+    const clean = cleanCNIC(cnic);
+    if (!/^\d{13}$/.test(clean)) return null;
+
+    const response = await axios.get(`${NURSE_API}?cnic=${clean}`, {
       timeout: 30000
     });
+    const data = response.data;
 
-    const result = response.data;
-
-    if (result.success && result.data) {
-      const data = result.data;
-
-      let message = `👩‍⚕️ *Nurse Record*\n`;
-      message += `━━━━━━━━━━━━━━━━\n`;
-      message += `👤 *Name:* ${data['Full Name'] || 'N/A'}\n`;
-      message += `🪪 *NIC Number:* ${data['NIC Number'] || 'N/A'}\n`;
-      message += `🎓 *Qualification:* ${data['Qualification'] || 'N/A'}\n`;
-      message += `🔬 *Speciality:* ${data['Speciality'] || 'N/A'}\n`;
-      message += `📋 *Category:* ${data['Registration Category'] || 'N/A'}\n`;
-      message += `📄 *Reg. Number:* ${data['Registration Number'] || 'N/A'}\n`;
-      message += `📅 *Initial Reg. Date:* ${data['Initial Registration Date'] || 'N/A'}\n`;
-      message += `⏳ *License Expiry:* ${data['License Expiration Date'] || 'N/A'}\n`;
-      message += `━━━━━━━━━━━━━━━━\n`;
-
-      // Send text message
-      await bot.editMessageText(message, {
-        chat_id: chatId,
-        message_id: loadingMsg.message_id,
-        parse_mode: 'Markdown'
-      });
-
-      // Send photo if available
-      if (result.photo) {
-        try {
-          await bot.sendPhoto(chatId, result.photo, {
-            caption: `🆔 *${data['Full Name'] || 'Nurse'}* - ${data['Registration Number'] || 'N/A'}`,
-            parse_mode: 'Markdown'
-          });
-        } catch (photoError) {
-          console.error('Photo send error:', photoError.message);
-          await bot.sendMessage(chatId, '⚠️ Photo not available or failed to load.');
-        }
-      }
-
-    } else {
-      await bot.editMessageText(`❌ No nurse record found for CNIC: *${cleanCNIC}*`, {
-        chat_id: chatId,
-        message_id: loadingMsg.message_id,
-        parse_mode: 'Markdown'
-      });
+    if (data.success && data.data) {
+      return {
+        info: data.data,
+        photo: data.photo || null
+      };
     }
+    return null;
   } catch (error) {
     console.error('Nurse API Error:', error.message);
-    await bot.editMessageText(`❌ Error fetching nurse record. Please try again later.\n\nError: ${error.message}`, {
+    return null;
+  }
+}
+
+// ============================================
+// RENDER FUNCTIONS
+// ============================================
+
+// Render SIM Results
+function renderSimResults(records) {
+  if (!records || records.length === 0) return '';
+
+  let message = `📱 *SIM Details*\n━━━━━━━━━━━━━━━━\n`;
+  message += `📊 *Records Found:* ${records.length}\n\n`;
+
+  records.forEach((record, index) => {
+    message += `👤 *Name:* ${record.full_name || 'N/A'}\n`;
+    message += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
+    message += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
+    message += `📍 *Address:* ${record.address || 'N/A'}\n`;
+    if (index < records.length - 1) {
+      message += `─────────────────\n`;
+    }
+  });
+
+  return message;
+}
+
+// Render Land Results
+function renderLandResults(records) {
+  if (!records || records.length === 0) return '';
+
+  // Remove duplicates
+  const seen = new Set();
+  const unique = records.filter(item => {
+    const id = item._source?.Id;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+
+  let message = `🏠 *Land Record*\n━━━━━━━━━━━━━━━━\n`;
+  message += `📊 *Records Found:* ${unique.length}\n\n`;
+
+  unique.forEach((item, index) => {
+    const src = item._source || {};
+    const parties = src.RegistryParties || [];
+
+    message += `📄 *Registry #${src.Id || 'N/A'}*\n`;
+    message += `📅 *Date:* ${src.RegistryDate || 'N/A'}\n`;
+    message += `🏷️ *Type:* ${src.RegistryType || 'N/A'}\n`;
+    message += `📍 *Mauza:* ${src.MauzaName || 'N/A'}\n`;
+    message += `🏛️ *Tehsil:* ${src.Tehsil || 'N/A'}\n`;
+    message += `📋 *Reg. Number:* ${src.RegisteredNumber || 'N/A'}\n`;
+    message += `📐 *Area:* ${src.Area || 'N/A'}\n`;
+    message += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : 'N/A'}\n`;
+
+    if (parties.length > 0) {
+      message += `\n👥 *Parties:*\n`;
+      parties.forEach(p => {
+        const spouse = p.SpouseName ? ` (S/o: ${p.SpouseName})` : '';
+        message += `  • ${p.Name || 'N/A'}${spouse} - ${getRoleLabel(p.RegistryPartiesTypeId)}\n`;
+      });
+    }
+
+    if (index < unique.length - 1) {
+      message += `─────────────────\n`;
+    }
+  });
+
+  return message;
+}
+
+// Render Nurse Results
+function renderNurseResults(data) {
+  if (!data) return '';
+
+  const info = data.info;
+
+  let message = `👩‍⚕️ *Nurse Record*\n━━━━━━━━━━━━━━━━\n`;
+  message += `👤 *Name:* ${info['Full Name'] || 'N/A'}\n`;
+  message += `🪪 *NIC:* ${info['NIC Number'] || 'N/A'}\n`;
+  message += `🎓 *Qualification:* ${info['Qualification'] || 'N/A'}\n`;
+  message += `🔬 *Speciality:* ${info['Speciality'] || 'N/A'}\n`;
+  message += `📋 *Category:* ${info['Registration Category'] || 'N/A'}\n`;
+  message += `📄 *Reg. Number:* ${info['Registration Number'] || 'N/A'}\n`;
+  message += `📅 *Initial Reg:* ${info['Initial Registration Date'] || 'N/A'}\n`;
+  message += `⏳ *Expiry:* ${info['License Expiration Date'] || 'N/A'}\n`;
+
+  return message;
+}
+
+// ============================================
+// MAIN AUTO-DETECT SEARCH
+// ============================================
+async function autoSearch(query, chatId, loadingMsg) {
+  const cleanedQuery = query.replace(/\D/g, '');
+  let results = [];
+  let hasResults = false;
+  let finalMessage = `🔍 *Search Query:* ${query}\n━━━━━━━━━━━━━━━━\n\n`;
+
+  try {
+    // 1. SIM API - Always called (works with both phone and CNIC)
+    const simRecords = await fetchSimDetails(query);
+    if (simRecords.length > 0) {
+      finalMessage += renderSimResults(simRecords);
+      finalMessage += `\n━━━━━━━━━━━━━━━━\n\n`;
+      hasResults = true;
+    }
+
+    // 2. If CNIC, call Land and Nurse APIs
+    if (cleanedQuery.length === 13) {
+      // Land Record
+      const landRecords = await fetchLandRecord(query);
+      if (landRecords.length > 0) {
+        finalMessage += renderLandResults(landRecords);
+        finalMessage += `\n━━━━━━━━━━━━━━━━\n\n`;
+        hasResults = true;
+      }
+
+      // Nurse Record
+      const nurseData = await fetchNurseRecord(query);
+      if (nurseData) {
+        finalMessage += renderNurseResults(nurseData);
+        finalMessage += `\n━━━━━━━━━━━━━━━━\n\n`;
+        hasResults = true;
+
+        // Send nurse photo separately if available
+        if (nurseData.photo) {
+          try {
+            await bot.sendPhoto(chatId, nurseData.photo, {
+              caption: `🆔 Nurse: ${nurseData.info['Full Name'] || 'N/A'}`
+            });
+          } catch (photoError) {
+            console.error('Photo Error:', photoError.message);
+          }
+        }
+      }
+    }
+
+    // If no results found
+    if (!hasResults) {
+      await bot.editMessageText(`❌ No results found for: *${query}*\n\nPlease check the number and try again.`, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown'
+      });
+      return;
+    }
+
+    // Remove trailing newlines and send
+    finalMessage = finalMessage.trim();
+    finalMessage += `\n🔗 *Credit:* AZ Tricks (https://t.me/AZ_Tricks)`;
+
+    await bot.editMessageText(finalMessage, {
+      chat_id: chatId,
+      message_id: loadingMsg.message_id,
+      parse_mode: 'Markdown'
+    });
+
+  } catch (error) {
+    console.error('Search Error:', error.message);
+    await bot.editMessageText(`❌ Error processing your request. Please try again later.\n\nError: ${error.message}`, {
       chat_id: chatId,
       message_id: loadingMsg.message_id
     });
   }
-});
+}
 
-// Handle unknown commands
-bot.on('message', (msg) => {
+// ============================================
+// HANDLE ALL MESSAGES (Auto-Detect)
+// ============================================
+bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || '';
 
-  if (!text.startsWith('/')) {
-    bot.sendMessage(chatId, `
-❓ *Unknown command*
+  // Ignore commands (start with /)
+  if (text.startsWith('/')) return;
 
-Use /help to see available commands.
+  // Ignore if empty
+  if (!text.trim()) return;
+
+  const cleaned = text.replace(/\D/g, '');
+
+  // Validate: must be 11 digits (phone) or 13 digits (CNIC)
+  if (cleaned.length !== 11 && cleaned.length !== 13) {
+    return bot.sendMessage(chatId, `
+❌ *Invalid Format!*
+
+Please send:
+📱 *Phone:* 03086756345 (11 digits)
+🪪 *CNIC:* 3440106097263 (13 digits)
+
+*Example:* 3440106097263 or 03086756345
+
+*Powered by:* @AZ_Tricks
+    `, { parse_mode: 'Markdown' });
+  }
+
+  // Start search
+  const loadingMsg = await bot.sendMessage(chatId, '⏳ Searching all databases...');
+  await autoSearch(text, chatId, loadingMsg);
+});
+
+// ============================================
+// HANDLE UNKNOWN COMMANDS
+// ============================================
+bot.onText(/\/.+/, (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text || '';
+
+  if (!['/start', '/help'].includes(text)) {
+    bot.sendMessage(chatId, `
+❌ *Unknown command: ${text}*
+
+Just send me any CNIC or Phone Number directly!
+
+📱 *Phone:* 03086756345
+🪪 *CNIC:* 3440106097263
 
 *Powered by:* @AZ_Tricks
     `, { parse_mode: 'Markdown' });
