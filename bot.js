@@ -1,277 +1,324 @@
-const express = require('express');
-const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
+const TelegramBot = require('node-telegram-bot-api');
 
-// Create Express app
-const app = express();
-app.use(express.json());
+// Environment variables (set in Vercel)
+const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://az-toolkit.vercel.app';
 
-// Bot setup
-const BOT_TOKEN = process.env.BOT_TOKEN;
-if (!BOT_TOKEN) {
-  console.error('❌ BOT_TOKEN not found');
-  process.exit(1);
-}
+// APIs
+const SIM_API = 'https://famofc.site/api/database.php';
+const LAND_API = 'https://az-land-api.vercel.app/api/proxy';
+const NURSE_API = 'https://nurse-chi.vercel.app/api/search';
 
-const bot = new Telegraf(BOT_TOKEN);
+// Initialize bot
+const bot = new TelegramBot(BOT_TOKEN);
 
-// 👑 ADMINS
-const ADMIN_IDS = [6581234524, 7133052934, 6343143457];
+// Set webhook
+bot.setWebHook(`${WEBHOOK_URL}/webhook`);
 
-// 📢 CHANNELS
-const CHANNELS = ["@AZ_Tricks", "@Hacking_Tricks0", "@a2z_hacking"];
-
-// API URL
-const API_URL = 'https://famofc.site/api/database.php';
-
-// ===== BOT FUNCTIONS (Copy from previous code) =====
-async function checkSubscription(userId) {
+// Handle webhook requests
+module.exports = async (req, res) => {
   try {
-    for (const channel of CHANNELS) {
-      try {
-        const chatMember = await bot.telegram.getChatMember(channel, userId);
-        if (chatMember.status === 'left' || chatMember.status === 'kicked') {
-          return false;
-        }
-      } catch (err) {
-        console.log(`Channel check error for ${channel}:`, err.message);
-        return false;
-      }
+    if (req.method === 'POST' && req.url === '/webhook') {
+      const body = req.body;
+      await bot.processUpdate(body);
+      return res.status(200).send('OK');
     }
-    return true;
+    return res.status(200).send('Bot is running!');
   } catch (error) {
-    console.error('Subscription check error:', error);
-    return false;
+    console.error('Error:', error);
+    return res.status(500).send('Error');
   }
-}
+};
 
-function isAdmin(userId) {
-  return ADMIN_IDS.includes(userId);
-}
+// Bot commands
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(chatId, `
+👋 *Welcome to AZ Toolkit Bot!*
 
-function formatRecords(data, query) {
-  const records = data.records || [];
-  const searchType = data.search_type || 'unknown';
-  
-  let result = `🔍 *Search Results*\n`;
-  result += `━━━━━━━━━━━━━━━━━━━━━\n`;
-  result += `📌 *Type:* ${searchType.toUpperCase()}\n`;
-  result += `🔎 *Query:* ${query}\n`;
-  result += `📊 *Records:* ${records.length}\n`;
-  result += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+🔍 *Available Commands:*
 
-  if (records.length === 0) {
-    result += `❌ *No records found!*`;
-    return result;
+📱 *Sim Details*
+/sim <phone> or /sim <cnic>
+Example: /sim 03086756345
+
+🏠 *Land Record*
+/land <cnic>
+Example: /land 3230437615645
+
+👩‍⚕️ *Nurse Record*
+/nurse <cnic>
+Example: /nurse 4410307154760
+
+ℹ️ *Help*
+/help - Show this message
+
+*Powered by:* @AZ_Tricks
+  `, { parse_mode: 'Markdown' });
+});
+
+bot.onText(/\/help/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(chatId, `
+📚 *How to Use:*
+
+1️⃣ *Sim Details* - /sim 03086756345
+   (Search by Phone or CNIC)
+
+2️⃣ *Land Record* - /land 3230437615645
+   (Search by CNIC)
+
+3️⃣ *Nurse Record* - /nurse 4410307154760
+   (Search by CNIC)
+
+*Note:* CNIC can be with or without dashes.
+
+*Powered by:* @AZ_Tricks
+  `, { parse_mode: 'Markdown' });
+});
+
+// ============================================
+// 1. SIM DETAILS API (Phone or CNIC)
+// ============================================
+bot.onText(/\/sim (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const query = match[1].trim();
+
+  if (!query) {
+    return bot.sendMessage(chatId, '❌ Please provide a phone number or CNIC.\nExample: /sim 03086756345');
   }
 
-  records.forEach((record, index) => {
-    result += `👤 *Record #${index + 1}*\n`;
-    result += `📛 *Name:* ${record.full_name || 'N/A'}\n`;
-    result += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
-    result += `🆔 *CNIC:* ${record.cnic || 'N/A'}\n`;
-    result += `📍 *Address:* ${record.address || 'N/A'}\n`;
-    result += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
-  });
+  const loadingMsg = await bot.sendMessage(chatId, '⏳ Fetching SIM details...');
 
-  result += `📢 *WhatsApp Channel:*\n`;
-  result += `https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D\n`;
-  result += `━━━━━━━━━━━━━━━━━━━━━\n`;
-  result += `🤖 *Powered By AZ TOOLKIT*`;
-
-  return result;
-}
-
-async function fetchData(query) {
   try {
-    const response = await axios.get(API_URL, {
-      params: { q: query },
+    const response = await axios.get(`${SIM_API}?q=${encodeURIComponent(query)}`, {
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json'
+      }
+    });
+
+    const result = response.data;
+
+    if (result.success && result.data.records_count > 0) {
+      let message = `📱 *SIM Details*\n`;
+      message += `━━━━━━━━━━━━━━━━\n`;
+      message += `🔍 *Search:* ${query}\n`;
+      message += `📊 *Records Found:* ${result.data.records_count}\n\n`;
+
+      result.data.records.forEach((record, index) => {
+        message += `👤 *Name:* ${record.full_name || 'N/A'}\n`;
+        message += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
+        message += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
+        message += `📍 *Address:* ${record.address || 'N/A'}\n`;
+        if (index < result.data.records_count - 1) {
+          message += `─────────────────\n`;
+        }
+      });
+
+      message += `\n━━━━━━━━━━━━━━━━\n`;
+      message += `📡 *Source:* ${result.data.data_source || 'N/A'}\n`;
+      message += `🔗 *Credit:* ${result.credit || 'FAMOFC'}\n`;
+
+      await bot.editMessageText(message, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown'
+      });
+    } else {
+      await bot.editMessageText(`❌ No records found for: *${query}*`, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown'
+      });
+    }
+  } catch (error) {
+    console.error('SIM API Error:', error.message);
+    await bot.editMessageText(`❌ Error fetching SIM details. Please try again later.\n\nError: ${error.message}`, {
+      chat_id: chatId,
+      message_id: loadingMsg.message_id
+    });
+  }
+});
+
+// ============================================
+// 2. LAND RECORD API (CNIC)
+// ============================================
+bot.onText(/\/land (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  let cnic = match[1].trim();
+
+  if (!cnic) {
+    return bot.sendMessage(chatId, '❌ Please provide a CNIC.\nExample: /land 3230437615645');
+  }
+
+  // Remove dashes
+  const cleanCNIC = cnic.replace(/-/g, '');
+
+  if (!/^\d{13}$/.test(cleanCNIC)) {
+    return bot.sendMessage(chatId, '❌ Invalid CNIC format. Must be 13 digits.');
+  }
+
+  const loadingMsg = await bot.sendMessage(chatId, '⏳ Fetching Land Record...');
+
+  try {
+    const response = await axios.get(`${LAND_API}?cnic=${cleanCNIC}`, {
       timeout: 30000
     });
-    
-    if (response.data && response.data.success) {
-      return response.data;
+
+    const result = response.data;
+
+    if (result.success && result.total > 0) {
+      let message = `🏠 *Land Record*\n`;
+      message += `━━━━━━━━━━━━━━━━\n`;
+      message += `🪪 *CNIC:* ${cleanCNIC}\n`;
+      message += `📊 *Records Found:* ${result.total}\n\n`;
+
+      result.data.forEach((item, index) => {
+        const src = item._source || {};
+        const parties = src.RegistryParties || [];
+
+        message += `📄 *Registry #${src.Id || 'N/A'}*\n`;
+        message += `📅 *Date:* ${src.RegistryDate || 'N/A'}\n`;
+        message += `🏷️ *Type:* ${src.RegistryType || 'N/A'}\n`;
+        message += `📍 *Mauza:* ${src.MauzaName || 'N/A'}\n`;
+        message += `🏛️ *Tehsil:* ${src.Tehsil || 'N/A'}\n`;
+        message += `📋 *Reg. Number:* ${src.RegisteredNumber || 'N/A'}\n`;
+        message += `📐 *Area:* ${src.Area || 'N/A'}\n`;
+        message += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : 'N/A'}\n`;
+        message += `🏠 *Property:* ${src.PropertyNumber || 'N/A'}\n`;
+
+        if (parties.length > 0) {
+          message += `\n👥 *Parties:*\n`;
+          parties.forEach(p => {
+            const role = p.RegistryPartiesTypeId === 1 ? 'Seller' :
+                        p.RegistryPartiesTypeId === 2 ? 'Buyer' :
+                        p.RegistryPartiesTypeId === 4 ? 'Witness' : 'Party';
+            message += `  • ${p.Name || 'N/A'} (${role}) - ${p.CNIC || 'N/A'}\n`;
+          });
+        }
+
+        if (index < result.data.length - 1) {
+          message += `─────────────────\n`;
+        }
+      });
+
+      message += `\n━━━━━━━━━━━━━━━━\n`;
+      message += `🔗 *Credit:* ${result.credit || 'AZ Tricks'}`;
+
+      await bot.editMessageText(message, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown'
+      });
     } else {
-      console.error('API returned unsuccessful:', response.data);
-      return null;
+      await bot.editMessageText(`❌ No land records found for CNIC: *${cleanCNIC}*`, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown'
+      });
     }
   } catch (error) {
-    console.error('API Error:', error.message);
-    return null;
-  }
-}
-
-// ===== BOT COMMANDS =====
-bot.start(async (ctx) => {
-  const userId = ctx.from.id;
-  const isSubscribed = await checkSubscription(userId);
-  const isAdminUser = isAdmin(userId);
-
-  if (!isSubscribed && !isAdminUser) {
-    const channelsList = CHANNELS.map(ch => `• ${ch}`).join('\n');
-    const message = `⚠️ *Access Denied!*\n\nYou must join the following channels to use this bot:\n\n${channelsList}\n\nAfter joining, click /start again.`;
-
-    const buttons = CHANNELS.map(ch => 
-      Markup.button.url(ch, `https://t.me/${ch.replace('@', '')}`)
-    );
-    
-    const rows = [];
-    for (let i = 0; i < buttons.length; i += 2) {
-      rows.push(buttons.slice(i, i + 2));
-    }
-
-    return ctx.reply(message, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(rows)
+    console.error('Land API Error:', error.message);
+    await bot.editMessageText(`❌ Error fetching land record. Please try again later.\n\nError: ${error.message}`, {
+      chat_id: chatId,
+      message_id: loadingMsg.message_id
     });
   }
-
-  const welcomeMessage = `🤖 *Welcome to AZ TOOLKIT!*\n\nI can search for information using CNIC or Phone Number.\n\n📌 *How to use:*\nSend me a CNIC or Phone Number\n\n📱 *Phone:* 03086756345\n🆔 *CNIC:* 3220282538606\n\n⚡ *Bot is ready to use!*`;
-
-  await ctx.reply(welcomeMessage, {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([
-      [Markup.button.url('📢 Join WhatsApp Channel', 'https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D')],
-      [Markup.button.url('🔰 My Channel', 'https://t.me/AZ_Tricks')]
-    ])
-  });
 });
 
-bot.on('text', async (ctx) => {
-  const userId = ctx.from.id;
-  const query = ctx.message.text.trim();
-  const isSubscribed = await checkSubscription(userId);
-  const isAdminUser = isAdmin(userId);
+// ============================================
+// 3. NURSE RECORD API (CNIC)
+// ============================================
+bot.onText(/\/nurse (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  let cnic = match[1].trim();
 
-  if (!isSubscribed && !isAdminUser) {
-    const channelsList = CHANNELS.map(ch => `• ${ch}`).join('\n');
-    const message = `⚠️ *Access Denied!*\n\nYou must join all channels to use this bot:\n\n${channelsList}\n\nAfter joining, try again.`;
-
-    const buttons = CHANNELS.map(ch => 
-      Markup.button.url(ch, `https://t.me/${ch.replace('@', '')}`)
-    );
-    
-    const rows = [];
-    for (let i = 0; i < buttons.length; i += 2) {
-      rows.push(buttons.slice(i, i + 2));
-    }
-
-    return ctx.reply(message, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(rows)
-    });
+  if (!cnic) {
+    return bot.sendMessage(chatId, '❌ Please provide a CNIC.\nExample: /nurse 4410307154760');
   }
 
-  if (query.startsWith('/')) {
-    return;
+  // Remove dashes
+  const cleanCNIC = cnic.replace(/-/g, '');
+
+  if (!/^\d{13}$/.test(cleanCNIC)) {
+    return bot.sendMessage(chatId, '❌ Invalid CNIC format. Must be 13 digits.');
   }
 
-  const isPhone = /^03\d{9}$/.test(query) || /^3\d{9}$/.test(query);
-  const isCNIC = /^\d{13}$/.test(query);
-
-  if (!isPhone && !isCNIC) {
-    return ctx.reply(
-      '❌ *Invalid Input!*\n\nPlease send a valid:\n• CNIC (13 digits)\n• Phone Number (03XXXXXXXXX)\n\nExample:\n📱 03086756345\n🆔 3220282538606',
-      { parse_mode: 'Markdown' }
-    );
-  }
-
-  await ctx.sendChatAction('typing');
+  const loadingMsg = await bot.sendMessage(chatId, '⏳ Fetching Nurse Record...');
 
   try {
-    const apiResponse = await fetchData(query);
+    const response = await axios.get(`${NURSE_API}?cnic=${cleanCNIC}`, {
+      timeout: 30000
+    });
 
-    if (!apiResponse || !apiResponse.success) {
-      return ctx.reply(
-        '❌ *Error:* Failed to fetch data from API.\nPlease try again later or contact admin.',
-        { parse_mode: 'Markdown' }
-      );
-    }
+    const result = response.data;
 
-    const records = apiResponse.data.records || [];
-    const searchType = apiResponse.data.search_type || 'unknown';
-    
-    if (records.length === 0) {
-      return ctx.reply(
-        '❌ *No records found!*\n\n🔎 *Query:* ${query}\n📌 *Type:* ${searchType}\n\nTry again with different input.',
-        { parse_mode: 'Markdown' }
-      );
-    }
+    if (result.success && result.data) {
+      const data = result.data;
 
-    const resultText = formatRecords(apiResponse.data, query);
-    
-    if (resultText.length > 4096) {
-      const chunks = resultText.match(/[\s\S]{1,4000}/g) || [];
-      for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: 'Markdown' });
+      let message = `👩‍⚕️ *Nurse Record*\n`;
+      message += `━━━━━━━━━━━━━━━━\n`;
+      message += `👤 *Name:* ${data['Full Name'] || 'N/A'}\n`;
+      message += `🪪 *NIC Number:* ${data['NIC Number'] || 'N/A'}\n`;
+      message += `🎓 *Qualification:* ${data['Qualification'] || 'N/A'}\n`;
+      message += `🔬 *Speciality:* ${data['Speciality'] || 'N/A'}\n`;
+      message += `📋 *Category:* ${data['Registration Category'] || 'N/A'}\n`;
+      message += `📄 *Reg. Number:* ${data['Registration Number'] || 'N/A'}\n`;
+      message += `📅 *Initial Reg. Date:* ${data['Initial Registration Date'] || 'N/A'}\n`;
+      message += `⏳ *License Expiry:* ${data['License Expiration Date'] || 'N/A'}\n`;
+      message += `━━━━━━━━━━━━━━━━\n`;
+
+      // Send text message
+      await bot.editMessageText(message, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown'
+      });
+
+      // Send photo if available
+      if (result.photo) {
+        try {
+          await bot.sendPhoto(chatId, result.photo, {
+            caption: `🆔 *${data['Full Name'] || 'Nurse'}* - ${data['Registration Number'] || 'N/A'}`,
+            parse_mode: 'Markdown'
+          });
+        } catch (photoError) {
+          console.error('Photo send error:', photoError.message);
+          await bot.sendMessage(chatId, '⚠️ Photo not available or failed to load.');
+        }
       }
+
     } else {
-      await ctx.reply(resultText, { parse_mode: 'Markdown' });
+      await bot.editMessageText(`❌ No nurse record found for CNIC: *${cleanCNIC}*`, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown'
+      });
     }
-
   } catch (error) {
-    console.error('Error processing request:', error);
-    await ctx.reply(
-      '❌ *Error occurred while processing your request.*\nPlease try again later.',
-      { parse_mode: 'Markdown' }
-    );
-  }
-});
-
-bot.command('admin', async (ctx) => {
-  const userId = ctx.from.id;
-  if (!isAdmin(userId)) {
-    return ctx.reply('⛔ *You are not authorized to use this command.*', {
-      parse_mode: 'Markdown'
+    console.error('Nurse API Error:', error.message);
+    await bot.editMessageText(`❌ Error fetching nurse record. Please try again later.\n\nError: ${error.message}`, {
+      chat_id: chatId,
+      message_id: loadingMsg.message_id
     });
   }
-
-  const adminMenu = `👑 *Admin Panel*\n━━━━━━━━━━━━━━━━━━━━━\n📊 *Status:* 🟢 Active\n👥 *Admins:* ${ADMIN_IDS.length}\n📢 *Channels:* ${CHANNELS.length}\n━━━━━━━━━━━━━━━━━━━━━\n🤖 *AZ TOOLKIT v2.0*`;
-
-  await ctx.reply(adminMenu, { 
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([
-      [Markup.button.url('📢 WhatsApp Channel', 'https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D')]
-    ])
-  });
 });
 
-bot.command('stats', async (ctx) => {
-  const userId = ctx.from.id;
-  if (!isAdmin(userId)) {
-    return ctx.reply('⛔ *Unauthorized!*', { parse_mode: 'Markdown' });
+// Handle unknown commands
+bot.on('message', (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text || '';
+
+  if (!text.startsWith('/')) {
+    bot.sendMessage(chatId, `
+❓ *Unknown command*
+
+Use /help to see available commands.
+
+*Powered by:* @AZ_Tricks
+    `, { parse_mode: 'Markdown' });
   }
-
-  const stats = `📊 *Bot Statistics*\n━━━━━━━━━━━━━━━━━━━━━\n📅 *Status:* 🟢 Online\n👑 *Admins:* ${ADMIN_IDS.length}\n📢 *Channels:* ${CHANNELS.length}\n⚡ *API:* Active\n🕐 *Uptime:* ${Math.floor(process.uptime())}s\n━━━━━━━━━━━━━━━━━━━━━\n🤖 *AZ TOOLKIT v2.0*`;
-
-  await ctx.reply(stats, { parse_mode: 'Markdown' });
 });
-
-// ===== WEBHOOK ENDPOINTS =====
-// Main webhook endpoint - Telegram sends updates here
-app.post('/bot', (req, res) => {
-  bot.handleUpdate(req.body, res);
-});
-
-// Health check for GET requests
-app.get('/bot', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'Webhook endpoint is working',
-    bot: 'AZ TOOLKIT'
-  });
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    bot: 'AZ TOOLKIT',
-    version: '2.0'
-  });
-});
-
-// ===== EXPORT FOR VERCEL =====
-module.exports = app;
-
-// IMPORTANT: Do NOT call bot.launch() here - Vercel handles it
