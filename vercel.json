@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "api/index.js": {
-      "runtime": "nodejs24.x"
-    }
-  },
   "rewrites": [
     { "source": "/webhook", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/api/index" }
