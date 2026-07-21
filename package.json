@@ -1,22 +1,15 @@
 {
-  "name": "AZ-TOOLKIT",
-  "version": "2.0.0",
-  "description": "Telegram bot for data lookup using CNIC and Phone Number",
+  "name": "az-toolkit",
+  "version": "1.0.0",
+  "description": "AZ Toolkit Telegram Bot - Sim Details, Land Record & Nurse Record",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "telegraf": "^4.12.2",
-    "axios": "^1.4.0"
+    "axios": "^1.6.0",
+    "node-telegram-bot-api": "^0.64.0"
   },
-  "keywords": [
-    "telegram",
-    "bot",
-    "cnic",
-    "phone",
-    "lookup"
-  ],
-  "author": "AZ TOOLKIT",
+  "author": "AZ Tricks",
   "license": "MIT"
 }
