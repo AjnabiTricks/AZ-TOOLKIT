@@ -1,15 +1,11 @@
 {
+  "functions": {
+    "api/index.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
   "rewrites": [
     { "source": "/webhook", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/api/index" }
-  ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" }
-      ]
-    }
   ]
 }
