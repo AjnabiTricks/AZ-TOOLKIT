@@ -57,10 +57,10 @@ async function sendPhoto(chatId, photoUrl, caption = '') {
 }
 
 // ============================================
-// API FUNCTIONS - EXACT RESPONSE STRUCTURE
+// API FUNCTIONS WITH RAW RESPONSE LOGGING
 // ============================================
 
-// 1. SIM API
+// 1. SIM API - With full response logging
 async function fetchSimDetails(query) {
   try {
     const response = await axios.get(`${SIM_API}?q=${encodeURIComponent(query)}`, {
@@ -72,12 +72,32 @@ async function fetchSimDetails(query) {
     });
     
     const data = response.data;
-    console.log('📱 SIM Response:', JSON.stringify(data).substring(0, 200));
     
-    // Exact structure from your response
-    if (data.success && data.data && data.data.records) {
-      return data.data.records;
+    // Send raw response to a specific chat for debugging (optional)
+    console.log('📱 SIM Full Response:', JSON.stringify(data));
+    
+    // Try multiple response structures
+    if (data.success) {
+      // Structure 1: data.data.records
+      if (data.data && data.data.records && Array.isArray(data.data.records)) {
+        return data.data.records;
+      }
+      // Structure 2: data.records
+      if (data.records && Array.isArray(data.records)) {
+        return data.records;
+      }
+      // Structure 3: data.data is array
+      if (data.data && Array.isArray(data.data)) {
+        return data.data;
+      }
     }
+    
+    // Structure 4: data is array
+    if (Array.isArray(data)) {
+      return data;
+    }
+    
+    console.log('⚠️ No SIM records found in any format');
     return [];
   } catch (error) {
     console.error('SIM Error:', error.message);
@@ -85,23 +105,38 @@ async function fetchSimDetails(query) {
   }
 }
 
-// 2. LAND API
+// 2. LAND API - With both with and without dashes
 async function fetchLandRecord(cnic) {
   const clean = cleanCNIC(cnic);
   if (!/^\d{13}$/.test(clean)) return [];
   
   try {
-    const response = await axios.get(`${LAND_API}?cnic=${clean}`, {
+    // Try with clean CNIC (without dashes)
+    const response1 = await axios.get(`${LAND_API}?cnic=${clean}`, {
       timeout: 15000
     });
     
-    const data = response.data;
-    console.log('🏠 Land Response:', JSON.stringify(data).substring(0, 200));
+    let data = response1.data;
+    console.log('🏠 Land Response (clean):', JSON.stringify(data).substring(0, 300));
     
-    // Exact structure from your response
-    if (data.success && data.data && Array.isArray(data.data)) {
+    if (data.success && data.data && Array.isArray(data.data) && data.data.length > 0) {
       return data.data;
     }
+    
+    // If not found, try with dashes format
+    const formattedCNIC = clean.replace(/(\d{5})(\d{7})(\d{1})/, '$1-$2-$3');
+    const response2 = await axios.get(`${LAND_API}?cnic=${formattedCNIC}`, {
+      timeout: 15000
+    });
+    
+    data = response2.data;
+    console.log('🏠 Land Response (with dashes):', JSON.stringify(data).substring(0, 300));
+    
+    if (data.success && data.data && Array.isArray(data.data) && data.data.length > 0) {
+      return data.data;
+    }
+    
+    console.log('⚠️ No Land records found in any format');
     return [];
   } catch (error) {
     console.error('Land Error:', error.message);
@@ -120,9 +155,8 @@ async function fetchNurseRecord(cnic) {
     });
     
     const data = response.data;
-    console.log('👩‍⚕️ Nurse Response:', JSON.stringify(data).substring(0, 200));
+    console.log('👩‍⚕️ Nurse Response:', JSON.stringify(data).substring(0, 300));
     
-    // Exact structure from your response
     if (data.success && data.data) {
       return {
         info: data.data,
@@ -140,7 +174,6 @@ async function fetchNurseRecord(cnic) {
 // RENDER FUNCTIONS
 // ============================================
 
-// SIM Render
 function renderSimResults(records, query) {
   if (!records || records.length === 0) {
     return `❌ *No SIM records found for:* *${query}*`;
@@ -151,10 +184,10 @@ function renderSimResults(records, query) {
   message += `📊 *Records Found:* ${records.length}\n\n`;
 
   records.forEach((record, index) => {
-    message += `👤 *Name:* ${record.full_name || 'N/A'}\n`;
-    message += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
-    message += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
-    message += `📍 *Address:* ${record.address || 'N/A'}\n`;
+    message += `👤 *Name:* ${record.full_name || record.name || 'N/A'}\n`;
+    message += `📱 *Phone:* ${record.phone || record.mobile || 'N/A'}\n`;
+    message += `🪪 *CNIC:* ${record.cnic || record.nic || 'N/A'}\n`;
+    message += `📍 *Address:* ${record.address || record.add || 'N/A'}\n`;
     if (index < records.length - 1) {
       message += `─────────────────\n`;
     }
@@ -164,16 +197,14 @@ function renderSimResults(records, query) {
   return message;
 }
 
-// Land Render
 function renderLandResults(records, query) {
   if (!records || records.length === 0) {
     return `❌ *No Land records found for:* *${query}*`;
   }
 
-  // Remove duplicates
   const seen = new Set();
   const unique = records.filter(item => {
-    const id = item._source?.Id;
+    const id = item._source?.Id || item.Id || item.id;
     if (seen.has(id)) return false;
     seen.add(id);
     return true;
@@ -184,15 +215,15 @@ function renderLandResults(records, query) {
   message += `📊 *Records Found:* ${unique.length}\n\n`;
 
   unique.forEach((item, index) => {
-    const src = item._source || {};
+    const src = item._source || item;
     const parties = src.RegistryParties || [];
 
-    message += `📄 *Registry #${src.Id || 'N/A'}*\n`;
-    message += `📅 *Date:* ${src.RegistryDate || 'N/A'}\n`;
-    message += `🏷️ *Type:* ${src.RegistryType || 'N/A'}\n`;
-    message += `📍 *Mauza:* ${src.MauzaName || 'N/A'}\n`;
-    message += `🏛️ *Tehsil:* ${src.Tehsil || 'N/A'}\n`;
-    message += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : 'N/A'}\n`;
+    message += `📄 *Registry #${src.Id || src.id || 'N/A'}*\n`;
+    message += `📅 *Date:* ${src.RegistryDate || src.registryDate || 'N/A'}\n`;
+    message += `🏷️ *Type:* ${src.RegistryType || src.registryType || 'N/A'}\n`;
+    message += `📍 *Mauza:* ${src.MauzaName || src.mauzaName || 'N/A'}\n`;
+    message += `🏛️ *Tehsil:* ${src.Tehsil || src.tehsil || 'N/A'}\n`;
+    message += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : src.registryValue || 'N/A'}\n`;
 
     if (parties.length > 0) {
       message += `\n👥 *Parties:*\n`;
@@ -211,7 +242,6 @@ function renderLandResults(records, query) {
   return message;
 }
 
-// Nurse Render
 function renderNurseResults(data, query) {
   if (!data || !data.info) {
     return `❌ *No Nurse record found for:* *${query}*`;
@@ -221,14 +251,14 @@ function renderNurseResults(data, query) {
 
   let message = `👩‍⚕️ *Nurse Record*\n━━━━━━━━━━━━━━━━\n`;
   message += `🔍 *Search:* *${query}*\n`;
-  message += `👤 *Name:* ${info['Full Name'] || 'N/A'}\n`;
-  message += `🪪 *NIC:* ${info['NIC Number'] || 'N/A'}\n`;
-  message += `🎓 *Qualification:* ${info['Qualification'] || 'N/A'}\n`;
-  message += `🔬 *Speciality:* ${info['Speciality'] || 'N/A'}\n`;
-  message += `📋 *Category:* ${info['Registration Category'] || 'N/A'}\n`;
-  message += `📄 *Reg. Number:* ${info['Registration Number'] || 'N/A'}\n`;
-  message += `📅 *Initial Reg:* ${info['Initial Registration Date'] || 'N/A'}\n`;
-  message += `⏳ *Expiry:* ${info['License Expiration Date'] || 'N/A'}\n`;
+  message += `👤 *Name:* ${info['Full Name'] || info.full_name || info.name || 'N/A'}\n`;
+  message += `🪪 *NIC:* ${info['NIC Number'] || info.nic_number || info.cnic || 'N/A'}\n`;
+  message += `🎓 *Qualification:* ${info['Qualification'] || info.qualification || 'N/A'}\n`;
+  message += `🔬 *Speciality:* ${info['Speciality'] || info.speciality || 'N/A'}\n`;
+  message += `📋 *Category:* ${info['Registration Category'] || info.registration_category || 'N/A'}\n`;
+  message += `📄 *Reg. Number:* ${info['Registration Number'] || info.registration_number || 'N/A'}\n`;
+  message += `📅 *Initial Reg:* ${info['Initial Registration Date'] || info.initial_registration_date || 'N/A'}\n`;
+  message += `⏳ *Expiry:* ${info['License Expiration Date'] || info.license_expiration_date || 'N/A'}\n`;
   message += `\n🔗 *Credit:* AZ Tricks (https://t.me/AZ_Tricks)`;
 
   return message;
@@ -242,29 +272,25 @@ async function autoSearch(query, chatId) {
   const cleanedQuery = query.replace(/\D/g, '');
   
   try {
-    // 1. SIM API - Always call
+    // 1. SIM API
     const simRecords = await fetchSimDetails(query);
     const simMessage = renderSimResults(simRecords, query);
     await sendMessage(chatId, simMessage);
 
     // 2. Land & Nurse (if CNIC)
     if (cleanedQuery.length === 13) {
-      // Call both in parallel
       const [landRecords, nurseData] = await Promise.all([
         fetchLandRecord(query),
         fetchNurseRecord(query)
       ]);
 
-      // Land Record
       const landMessage = renderLandResults(landRecords, query);
       await sendMessage(chatId, landMessage);
 
-      // Nurse Record
       if (nurseData) {
         const nurseMessage = renderNurseResults(nurseData, query);
         await sendMessage(chatId, nurseMessage);
 
-        // Send photo separately
         if (nurseData.photo) {
           try {
             await sendPhoto(chatId, nurseData.photo, `🆔 *Nurse:* ${nurseData.info['Full Name'] || 'N/A'}`);
@@ -277,7 +303,6 @@ async function autoSearch(query, chatId) {
       }
     }
 
-    // If phone number only
     if (cleanedQuery.length === 11) {
       await sendMessage(chatId, `ℹ️ *Land Record:* Not applicable for phone number *${query}*`);
       await sendMessage(chatId, `ℹ️ *Nurse Record:* Not applicable for phone number *${query}*`);
@@ -376,7 +401,6 @@ Please send:
           return res.status(200).send('OK');
         }
 
-        // Start search
         await sendMessage(chatId, `⏳ *Searching for:* *${text}* ...`);
         await autoSearch(text, chatId);
       }
