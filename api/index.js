@@ -60,7 +60,7 @@ async function sendPhoto(chatId, photoUrl, caption = '') {
 // API FUNCTIONS WITH TIMEOUT
 // ============================================
 
-async function fetchWithTimeout(url, timeout = 8000) {
+async function fetchWithTimeout(url, timeout = 10000) {
   try {
     const response = await axios.get(url, {
       timeout: timeout,
@@ -77,7 +77,7 @@ async function fetchWithTimeout(url, timeout = 8000) {
 }
 
 async function fetchSimDetails(query) {
-  const data = await fetchWithTimeout(`${SIM_API}?q=${encodeURIComponent(query)}`, 8000);
+  const data = await fetchWithTimeout(`${SIM_API}?q=${encodeURIComponent(query)}`, 10000);
   if (data && data.success && data.data?.records_count > 0) {
     return data.data.records;
   }
@@ -88,7 +88,7 @@ async function fetchLandRecord(cnic) {
   const clean = cleanCNIC(cnic);
   if (!/^\d{13}$/.test(clean)) return [];
   
-  const data = await fetchWithTimeout(`${LAND_API}?cnic=${clean}`, 8000);
+  const data = await fetchWithTimeout(`${LAND_API}?cnic=${clean}`, 10000);
   if (data && data.success && data.data?.length > 0) {
     return data.data;
   }
@@ -99,7 +99,7 @@ async function fetchNurseRecord(cnic) {
   const clean = cleanCNIC(cnic);
   if (!/^\d{13}$/.test(clean)) return null;
   
-  const data = await fetchWithTimeout(`${NURSE_API}?cnic=${clean}`, 8000);
+  const data = await fetchWithTimeout(`${NURSE_API}?cnic=${clean}`, 10000);
   if (data && data.success && data.data) {
     return {
       info: data.data,
@@ -110,34 +110,118 @@ async function fetchNurseRecord(cnic) {
 }
 
 // ============================================
-// SEARCH FUNCTION
+// RENDER FUNCTIONS - ALAG ALAG REPLY
+// ============================================
+
+function renderSimResults(records, query) {
+  if (!records || records.length === 0) {
+    return `❌ *No SIM records found for:* *${query}*`;
+  }
+
+  let message = `📱 *SIM Details*\n━━━━━━━━━━━━━━━━\n`;
+  message += `🔍 *Search:* *${query}*\n`;
+  message += `📊 *Records Found:* ${records.length}\n\n`;
+
+  records.forEach((record, index) => {
+    message += `👤 *Name:* ${record.full_name || 'N/A'}\n`;
+    message += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
+    message += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
+    message += `📍 *Address:* ${record.address || 'N/A'}\n`;
+    if (index < records.length - 1) {
+      message += `─────────────────\n`;
+    }
+  });
+
+  message += `\n🔗 *Credit:* AZ Tricks (https://t.me/AZ_Tricks)`;
+  return message;
+}
+
+function renderLandResults(records, query) {
+  if (!records || records.length === 0) {
+    return `❌ *No Land records found for:* *${query}*`;
+  }
+
+  // Remove duplicates
+  const seen = new Set();
+  const unique = records.filter(item => {
+    const id = item._source?.Id;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+
+  let message = `🏠 *Land Record*\n━━━━━━━━━━━━━━━━\n`;
+  message += `🔍 *Search:* *${query}*\n`;
+  message += `📊 *Records Found:* ${unique.length}\n\n`;
+
+  unique.forEach((item, index) => {
+    const src = item._source || {};
+    const parties = src.RegistryParties || [];
+
+    message += `📄 *Registry #${src.Id || 'N/A'}*\n`;
+    message += `📅 *Date:* ${src.RegistryDate || 'N/A'}\n`;
+    message += `🏷️ *Type:* ${src.RegistryType || 'N/A'}\n`;
+    message += `📍 *Mauza:* ${src.MauzaName || 'N/A'}\n`;
+    message += `🏛️ *Tehsil:* ${src.Tehsil || 'N/A'}\n`;
+    message += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : 'N/A'}\n`;
+
+    if (parties.length > 0) {
+      message += `\n👥 *Parties:*\n`;
+      parties.forEach(p => {
+        const spouse = p.SpouseName ? ` (S/o: ${p.SpouseName})` : '';
+        message += `  • ${p.Name || 'N/A'}${spouse} - ${getRoleLabel(p.RegistryPartiesTypeId)}\n`;
+      });
+    }
+
+    if (index < unique.length - 1) {
+      message += `─────────────────\n`;
+    }
+  });
+
+  message += `\n🔗 *Credit:* AZ Tricks (https://t.me/AZ_Tricks)`;
+  return message;
+}
+
+function renderNurseResults(data, query) {
+  if (!data) {
+    return `❌ *No Nurse record found for:* *${query}*`;
+  }
+
+  const info = data.info;
+
+  let message = `👩‍⚕️ *Nurse Record*\n━━━━━━━━━━━━━━━━\n`;
+  message += `🔍 *Search:* *${query}*\n`;
+  message += `👤 *Name:* ${info['Full Name'] || 'N/A'}\n`;
+  message += `🪪 *NIC:* ${info['NIC Number'] || 'N/A'}\n`;
+  message += `🎓 *Qualification:* ${info['Qualification'] || 'N/A'}\n`;
+  message += `🔬 *Speciality:* ${info['Speciality'] || 'N/A'}\n`;
+  message += `📋 *Category:* ${info['Registration Category'] || 'N/A'}\n`;
+  message += `📄 *Reg. Number:* ${info['Registration Number'] || 'N/A'}\n`;
+  message += `📅 *Initial Reg:* ${info['Initial Registration Date'] || 'N/A'}\n`;
+  message += `⏳ *Expiry:* ${info['License Expiration Date'] || 'N/A'}\n`;
+  message += `\n🔗 *Credit:* AZ Tricks (https://t.me/AZ_Tricks)`;
+
+  return message;
+}
+
+// ============================================
+// SEARCH FUNCTION - ALAG ALAG REPLY
 // ============================================
 
 async function autoSearch(query, chatId) {
   const cleanedQuery = query.replace(/\D/g, '');
-  let hasResults = false;
-  let finalMessage = `🔍 *Search Query:* ${query}\n━━━━━━━━━━━━━━━━\n\n`;
+  let simSent = false;
+  let landSent = false;
+  let nurseSent = false;
 
   try {
-    // 1. SIM API - Fast
+    // 1. SIM API - Fastest, send first
     const simRecords = await fetchSimDetails(query);
-    if (simRecords.length > 0) {
-      finalMessage += `📱 *SIM Details*\n━━━━━━━━━━━━━━━━\n`;
-      finalMessage += `📊 *Records Found:* ${simRecords.length}\n\n`;
-      simRecords.forEach((record, index) => {
-        finalMessage += `👤 *Name:* ${record.full_name || 'N/A'}\n`;
-        finalMessage += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
-        finalMessage += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
-        finalMessage += `📍 *Address:* ${record.address || 'N/A'}\n`;
-        if (index < simRecords.length - 1) {
-          finalMessage += `─────────────────\n`;
-        }
-      });
-      finalMessage += `\n━━━━━━━━━━━━━━━━\n\n`;
-      hasResults = true;
-    }
+    const simMessage = renderSimResults(simRecords, query);
+    await sendMessage(chatId, simMessage);
+    simSent = true;
 
-    // 2. Land & Nurse (if CNIC) - Parallel calls
+    // 2. Land & Nurse (if CNIC) - Parallel
     if (cleanedQuery.length === 13) {
       const [landRecords, nurseData] = await Promise.all([
         fetchLandRecord(query),
@@ -145,79 +229,43 @@ async function autoSearch(query, chatId) {
       ]);
 
       // Land Record
-      if (landRecords.length > 0) {
-        const seen = new Set();
-        const unique = landRecords.filter(item => {
-          const id = item._source?.Id;
-          if (seen.has(id)) return false;
-          seen.add(id);
-          return true;
-        });
-
-        finalMessage += `🏠 *Land Record*\n━━━━━━━━━━━━━━━━\n`;
-        finalMessage += `📊 *Records Found:* ${unique.length}\n\n`;
-
-        unique.forEach((item, index) => {
-          const src = item._source || {};
-          const parties = src.RegistryParties || [];
-
-          finalMessage += `📄 *Registry #${src.Id || 'N/A'}*\n`;
-          finalMessage += `📅 *Date:* ${src.RegistryDate || 'N/A'}\n`;
-          finalMessage += `🏷️ *Type:* ${src.RegistryType || 'N/A'}\n`;
-          finalMessage += `📍 *Mauza:* ${src.MauzaName || 'N/A'}\n`;
-          finalMessage += `🏛️ *Tehsil:* ${src.Tehsil || 'N/A'}\n`;
-          finalMessage += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : 'N/A'}\n`;
-
-          if (parties.length > 0) {
-            finalMessage += `\n👥 *Parties:*\n`;
-            parties.forEach(p => {
-              const spouse = p.SpouseName ? ` (S/o: ${p.SpouseName})` : '';
-              finalMessage += `  • ${p.Name || 'N/A'}${spouse} - ${getRoleLabel(p.RegistryPartiesTypeId)}\n`;
-            });
-          }
-
-          if (index < unique.length - 1) {
-            finalMessage += `─────────────────\n`;
-          }
-        });
-
-        finalMessage += `\n━━━━━━━━━━━━━━━━\n\n`;
-        hasResults = true;
-      }
+      const landMessage = renderLandResults(landRecords, query);
+      await sendMessage(chatId, landMessage);
+      landSent = true;
 
       // Nurse Record
       if (nurseData) {
-        const info = nurseData.info;
-        finalMessage += `👩‍⚕️ *Nurse Record*\n━━━━━━━━━━━━━━━━\n`;
-        finalMessage += `👤 *Name:* ${info['Full Name'] || 'N/A'}\n`;
-        finalMessage += `🪪 *NIC:* ${info['NIC Number'] || 'N/A'}\n`;
-        finalMessage += `🎓 *Qualification:* ${info['Qualification'] || 'N/A'}\n`;
-        finalMessage += `🔬 *Speciality:* ${info['Speciality'] || 'N/A'}\n`;
-        finalMessage += `📋 *Category:* ${info['Registration Category'] || 'N/A'}\n`;
-        finalMessage += `📄 *Reg. Number:* ${info['Registration Number'] || 'N/A'}\n`;
-        finalMessage += `📅 *Initial Reg:* ${info['Initial Registration Date'] || 'N/A'}\n`;
-        finalMessage += `⏳ *Expiry:* ${info['License Expiration Date'] || 'N/A'}\n`;
-        finalMessage += `\n━━━━━━━━━━━━━━━━\n\n`;
-        hasResults = true;
+        const nurseMessage = renderNurseResults(nurseData, query);
+        await sendMessage(chatId, nurseMessage);
+        nurseSent = true;
 
         // Send photo separately
         if (nurseData.photo) {
-          await sendPhoto(chatId, nurseData.photo, `🆔 Nurse: ${info['Full Name'] || 'N/A'}`);
+          await sendPhoto(chatId, nurseData.photo, `🆔 Nurse: ${nurseData.info['Full Name'] || 'N/A'}`);
         }
+      } else {
+        await sendMessage(chatId, `❌ *No Nurse record found for:* *${query}*`);
+        nurseSent = true;
       }
     }
 
-    if (!hasResults) {
-      await sendMessage(chatId, `❌ No results found for: *${query}*\n\nPlease check the number and try again.`);
-      return;
+    // If only phone number (no CNIC), send not found for Land & Nurse
+    if (cleanedQuery.length === 11) {
+      await sendMessage(chatId, `❌ *Land Record:* Not applicable for phone number *${query}*`);
+      await sendMessage(chatId, `❌ *Nurse Record:* Not applicable for phone number *${query}*`);
     }
-
-    finalMessage += `🔗 *Credit:* AZ Tricks (https://t.me/AZ_Tricks)`;
-    await sendMessage(chatId, finalMessage);
 
   } catch (error) {
     console.error('Search Error:', error.message);
-    await sendMessage(chatId, `❌ Error processing your request. Please try again later.`);
+    if (!simSent) {
+      await sendMessage(chatId, `❌ *Error fetching SIM details for:* *${query}*`);
+    }
+    if (!landSent && cleanedQuery.length === 13) {
+      await sendMessage(chatId, `❌ *Error fetching Land record for:* *${query}*`);
+    }
+    if (!nurseSent && cleanedQuery.length === 13) {
+      await sendMessage(chatId, `❌ *Error fetching Nurse record for:* *${query}*`);
+    }
   }
 }
 
@@ -316,10 +364,8 @@ Please send:
           return res.status(200).send('OK');
         }
 
-        // Send immediate response
-        await sendMessage(chatId, '⏳ Searching all databases...');
-
-        // Perform search (async, but we already sent response)
+        // Start search
+        await sendMessage(chatId, `⏳ *Searching for:* *${text}* ...`);
         await autoSearch(text, chatId);
       }
 
