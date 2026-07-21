@@ -7,9 +7,6 @@ const SIM_API = 'https://famofc.site/api/database.php';
 const LAND_API = 'https://az-land-api.vercel.app/api/proxy';
 const NURSE_API = 'https://nurse-chi.vercel.app/api/search';
 
-// ============================================
-// TELEGRAM BOT TOKEN
-// ============================================
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
 // ============================================
@@ -40,7 +37,7 @@ async function sendMessage(chatId, text, parseMode = 'Markdown') {
       chat_id: chatId,
       text: text,
       parse_mode: parseMode
-    });
+    }, { timeout: 5000 });
   } catch (error) {
     console.error('Send message error:', error.message);
   }
@@ -53,77 +50,63 @@ async function sendPhoto(chatId, photoUrl, caption = '') {
       photo: photoUrl,
       caption: caption,
       parse_mode: 'Markdown'
-    });
+    }, { timeout: 5000 });
   } catch (error) {
     console.error('Send photo error:', error.message);
   }
 }
 
 // ============================================
-// API FUNCTIONS
+// API FUNCTIONS WITH TIMEOUT
 // ============================================
 
-async function fetchSimDetails(query) {
+async function fetchWithTimeout(url, timeout = 8000) {
   try {
-    const response = await axios.get(`${SIM_API}?q=${encodeURIComponent(query)}`, {
-      timeout: 30000,
+    const response = await axios.get(url, {
+      timeout: timeout,
       headers: {
         'User-Agent': 'Mozilla/5.0',
         'Accept': 'application/json'
       }
     });
-    const result = response.data;
-    if (result.success && result.data.records_count > 0) {
-      return result.data.records;
-    }
-    return [];
+    return response.data;
   } catch (error) {
-    console.error('SIM API Error:', error.message);
-    return [];
+    console.error('API Error:', error.message);
+    return null;
   }
+}
+
+async function fetchSimDetails(query) {
+  const data = await fetchWithTimeout(`${SIM_API}?q=${encodeURIComponent(query)}`, 8000);
+  if (data && data.success && data.data?.records_count > 0) {
+    return data.data.records;
+  }
+  return [];
 }
 
 async function fetchLandRecord(cnic) {
-  try {
-    const clean = cleanCNIC(cnic);
-    if (!/^\d{13}$/.test(clean)) return [];
-
-    const response = await axios.get(`${LAND_API}?cnic=${clean}`, {
-      timeout: 30000
-    });
-    const data = response.data;
-
-    if (data.success && data.data?.length > 0) {
-      return data.data;
-    }
-    return [];
-  } catch (error) {
-    console.error('Land API Error:', error.message);
-    return [];
+  const clean = cleanCNIC(cnic);
+  if (!/^\d{13}$/.test(clean)) return [];
+  
+  const data = await fetchWithTimeout(`${LAND_API}?cnic=${clean}`, 8000);
+  if (data && data.success && data.data?.length > 0) {
+    return data.data;
   }
+  return [];
 }
 
 async function fetchNurseRecord(cnic) {
-  try {
-    const clean = cleanCNIC(cnic);
-    if (!/^\d{13}$/.test(clean)) return null;
-
-    const response = await axios.get(`${NURSE_API}?cnic=${clean}`, {
-      timeout: 30000
-    });
-    const data = response.data;
-
-    if (data.success && data.data) {
-      return {
-        info: data.data,
-        photo: data.photo || null
-      };
-    }
-    return null;
-  } catch (error) {
-    console.error('Nurse API Error:', error.message);
-    return null;
+  const clean = cleanCNIC(cnic);
+  if (!/^\d{13}$/.test(clean)) return null;
+  
+  const data = await fetchWithTimeout(`${NURSE_API}?cnic=${clean}`, 8000);
+  if (data && data.success && data.data) {
+    return {
+      info: data.data,
+      photo: data.photo || null
+    };
   }
+  return null;
 }
 
 // ============================================
@@ -136,7 +119,7 @@ async function autoSearch(query, chatId) {
   let finalMessage = `🔍 *Search Query:* ${query}\n━━━━━━━━━━━━━━━━\n\n`;
 
   try {
-    // 1. SIM API - Always
+    // 1. SIM API - Fast
     const simRecords = await fetchSimDetails(query);
     if (simRecords.length > 0) {
       finalMessage += `📱 *SIM Details*\n━━━━━━━━━━━━━━━━\n`;
@@ -154,10 +137,14 @@ async function autoSearch(query, chatId) {
       hasResults = true;
     }
 
-    // 2. Land & Nurse (if CNIC)
+    // 2. Land & Nurse (if CNIC) - Parallel calls
     if (cleanedQuery.length === 13) {
+      const [landRecords, nurseData] = await Promise.all([
+        fetchLandRecord(query),
+        fetchNurseRecord(query)
+      ]);
+
       // Land Record
-      const landRecords = await fetchLandRecord(query);
       if (landRecords.length > 0) {
         const seen = new Set();
         const unique = landRecords.filter(item => {
@@ -199,7 +186,6 @@ async function autoSearch(query, chatId) {
       }
 
       // Nurse Record
-      const nurseData = await fetchNurseRecord(query);
       if (nurseData) {
         const info = nurseData.info;
         finalMessage += `👩‍⚕️ *Nurse Record*\n━━━━━━━━━━━━━━━━\n`;
@@ -214,7 +200,7 @@ async function autoSearch(query, chatId) {
         finalMessage += `\n━━━━━━━━━━━━━━━━\n\n`;
         hasResults = true;
 
-        // Send photo
+        // Send photo separately
         if (nurseData.photo) {
           await sendPhoto(chatId, nurseData.photo, `🆔 Nurse: ${info['Full Name'] || 'N/A'}`);
         }
@@ -236,7 +222,7 @@ async function autoSearch(query, chatId) {
 }
 
 // ============================================
-// WEBHOOK HANDLER (Vercel)
+// WEBHOOK HANDLER
 // ============================================
 
 module.exports = async (req, res) => {
@@ -330,8 +316,10 @@ Please send:
           return res.status(200).send('OK');
         }
 
-        // Perform search
+        // Send immediate response
         await sendMessage(chatId, '⏳ Searching all databases...');
+
+        // Perform search (async, but we already sent response)
         await autoSearch(text, chatId);
       }
 
