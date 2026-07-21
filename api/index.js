@@ -1,26 +1,62 @@
 const axios = require('axios');
 
-// APIs
+// ============================================
+// APIS
+// ============================================
 const SIM_API = 'https://famofc.site/api/database.php';
 const LAND_API = 'https://az-land-api.vercel.app/api/proxy';
 const NURSE_API = 'https://nurse-chi.vercel.app/api/search';
 
-// Telegram Bot Token (Environment Variable)
+// ============================================
+// TELEGRAM BOT TOKEN
+// ============================================
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
-// Helper functions
+// ============================================
+// HELPERS
+// ============================================
+
 function cleanCNIC(value) {
   return value.replace(/[-\s]/g, '');
 }
 
-function isPhoneNumber(query) {
-  const cleaned = query.replace(/\D/g, '');
-  return cleaned.length === 11 && (cleaned.startsWith('03') || cleaned.startsWith('3'));
+function getRoleLabel(typeId) {
+  const roles = {
+    1: 'Seller',
+    2: 'Buyer',
+    4: 'Witness',
+    31: 'Party'
+  };
+  return roles[typeId] || `Role ${typeId}`;
 }
 
-function isCNIC(query) {
-  const cleaned = query.replace(/\D/g, '');
-  return cleaned.length === 13;
+// ============================================
+// TELEGRAM FUNCTIONS
+// ============================================
+
+async function sendMessage(chatId, text, parseMode = 'Markdown') {
+  try {
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: text,
+      parse_mode: parseMode
+    });
+  } catch (error) {
+    console.error('Send message error:', error.message);
+  }
+}
+
+async function sendPhoto(chatId, photoUrl, caption = '') {
+  try {
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+      chat_id: chatId,
+      photo: photoUrl,
+      caption: caption,
+      parse_mode: 'Markdown'
+    });
+  } catch (error) {
+    console.error('Send photo error:', error.message);
+  }
 }
 
 // ============================================
@@ -91,35 +127,6 @@ async function fetchNurseRecord(cnic) {
 }
 
 // ============================================
-// SEND MESSAGE TO TELEGRAM
-// ============================================
-
-async function sendMessage(chatId, text, parseMode = 'Markdown') {
-  try {
-    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      chat_id: chatId,
-      text: text,
-      parse_mode: parseMode
-    });
-  } catch (error) {
-    console.error('Send message error:', error.message);
-  }
-}
-
-async function sendPhoto(chatId, photoUrl, caption = '') {
-  try {
-    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
-      chat_id: chatId,
-      photo: photoUrl,
-      caption: caption,
-      parse_mode: 'Markdown'
-    });
-  } catch (error) {
-    console.error('Send photo error:', error.message);
-  }
-}
-
-// ============================================
 // SEARCH FUNCTION
 // ============================================
 
@@ -129,7 +136,7 @@ async function autoSearch(query, chatId) {
   let finalMessage = `🔍 *Search Query:* ${query}\n━━━━━━━━━━━━━━━━\n\n`;
 
   try {
-    // 1. SIM API
+    // 1. SIM API - Always
     const simRecords = await fetchSimDetails(query);
     if (simRecords.length > 0) {
       finalMessage += `📱 *SIM Details*\n━━━━━━━━━━━━━━━━\n`;
@@ -149,6 +156,7 @@ async function autoSearch(query, chatId) {
 
     // 2. Land & Nurse (if CNIC)
     if (cleanedQuery.length === 13) {
+      // Land Record
       const landRecords = await fetchLandRecord(query);
       if (landRecords.length > 0) {
         const seen = new Set();
@@ -177,10 +185,7 @@ async function autoSearch(query, chatId) {
             finalMessage += `\n👥 *Parties:*\n`;
             parties.forEach(p => {
               const spouse = p.SpouseName ? ` (S/o: ${p.SpouseName})` : '';
-              const role = p.RegistryPartiesTypeId === 1 ? 'Seller' :
-                          p.RegistryPartiesTypeId === 2 ? 'Buyer' :
-                          p.RegistryPartiesTypeId === 4 ? 'Witness' : 'Party';
-              finalMessage += `  • ${p.Name || 'N/A'}${spouse} - ${role}\n`;
+              finalMessage += `  • ${p.Name || 'N/A'}${spouse} - ${getRoleLabel(p.RegistryPartiesTypeId)}\n`;
             });
           }
 
@@ -193,6 +198,7 @@ async function autoSearch(query, chatId) {
         hasResults = true;
       }
 
+      // Nurse Record
       const nurseData = await fetchNurseRecord(query);
       if (nurseData) {
         const info = nurseData.info;
@@ -225,36 +231,36 @@ async function autoSearch(query, chatId) {
 
   } catch (error) {
     console.error('Search Error:', error.message);
-    await sendMessage(chatId, `❌ Error processing your request. Please try again later.\n\nError: ${error.message}`);
+    await sendMessage(chatId, `❌ Error processing your request. Please try again later.`);
   }
 }
 
 // ============================================
-// WEBHOOK HANDLER
+// WEBHOOK HANDLER (Vercel)
 // ============================================
 
 module.exports = async (req, res) => {
-  // Set webhook info endpoint
+  // GET request - health check
   if (req.method === 'GET') {
     return res.status(200).json({
       status: 'ok',
-      message: 'Webhook is running',
+      message: 'AZ Toolkit Bot is running',
       bot: '@AZToolkitBot',
-      credit: 'AZ Tricks'
+      credit: 'AZ Tricks',
+      webhook_url: 'https://az-toolkit.vercel.app/webhook'
     });
   }
 
-  // Handle POST webhook
+  // POST request - Telegram updates
   if (req.method === 'POST') {
     try {
       const update = req.body;
       
-      // Check if message exists
       if (update.message) {
         const chatId = update.message.chat.id;
         const text = update.message.text || '';
 
-        // Handle /start command
+        // /start command
         if (text === '/start') {
           await sendMessage(chatId, `
 👋 *Welcome to AZ Toolkit Bot!*
@@ -272,7 +278,7 @@ I'll auto-detect and search all databases!
           return res.status(200).send('OK');
         }
 
-        // Handle /help command
+        // /help command
         if (text === '/help') {
           await sendMessage(chatId, `
 📚 *How to Use:*
@@ -292,8 +298,18 @@ I'll automatically:
           return res.status(200).send('OK');
         }
 
-        // Skip commands
+        // Unknown command
         if (text.startsWith('/')) {
+          await sendMessage(chatId, `
+❌ *Unknown command: ${text}*
+
+Just send me any CNIC or Phone Number directly!
+
+📱 *Phone:* 03086756345
+🪪 *CNIC:* 3440106097263
+
+*Powered by:* @AZ_Tricks
+          `);
           return res.status(200).send('OK');
         }
 
@@ -322,7 +338,7 @@ Please send:
       return res.status(200).send('OK');
     } catch (error) {
       console.error('Webhook error:', error);
-      return res.status(200).send('OK'); // Always return 200 for Telegram
+      return res.status(200).send('OK');
     }
   }
 
