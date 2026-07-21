@@ -6,8 +6,8 @@ const axios = require('axios');
 const SIM_API = 'https://famofc.site/api/database.php';
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
-// Channel username (without @)
-const CHANNEL_USERNAME = 'AZ_Tricks';
+// Channel & Links
+const CHANNEL_USERNAME = '@AZ_Tricks';
 const WHATSAPP_LINK = 'https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D';
 
 // ============================================
@@ -19,7 +19,8 @@ async function sendMessage(chatId, text, parseMode = 'Markdown') {
     await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       chat_id: chatId,
       text: text,
-      parse_mode: parseMode
+      parse_mode: parseMode,
+      disable_web_page_preview: true
     }, { timeout: 5000 });
   } catch (error) {
     console.error('Send message error:', error.message);
@@ -27,7 +28,7 @@ async function sendMessage(chatId, text, parseMode = 'Markdown') {
 }
 
 // ============================================
-// CHECK IF USER JOINED CHANNEL
+// CHECK CHANNEL MEMBERSHIP
 // ============================================
 
 async function checkChannelMembership(userId) {
@@ -36,7 +37,7 @@ async function checkChannelMembership(userId) {
       `https://api.telegram.org/bot${BOT_TOKEN}/getChatMember`,
       {
         params: {
-          chat_id: `@${CHANNEL_USERNAME}`,
+          chat_id: `@AZ_Tricks`,
           user_id: userId
         },
         timeout: 5000
@@ -44,8 +45,7 @@ async function checkChannelMembership(userId) {
     );
     
     const status = response.data.result?.status;
-    // status can be: 'creator', 'administrator', 'member', 'restricted', 'left', 'kicked'
-    return status === 'creator' || status === 'administrator' || status === 'member';
+    return ['creator', 'administrator', 'member'].includes(status);
   } catch (error) {
     console.error('Channel check error:', error.message);
     return false;
@@ -67,9 +67,9 @@ async function fetchSimDetails(query) {
     });
     
     const result = response.data;
-    console.log('📱 SIM Raw:', JSON.stringify(result));
+    console.log('📱 SIM Response:', JSON.stringify(result).substring(0, 300));
     
-    if (result && result.data && result.data.records) {
+    if (result && result.success && result.data && result.data.records) {
       return result.data.records;
     }
     return [];
@@ -84,11 +84,18 @@ async function fetchSimDetails(query) {
 // ============================================
 
 function renderSimResults(records, query) {
+  // Footer with direct links
+  const footer = `
+━━━━━━━━━━━━━━━━
+📢 *Join our Telegram Channel:* ${CHANNEL_USERNAME}
+💬 *Join WhatsApp Channel:* ${WHATSAPP_LINK}`;
+
   if (!records || records.length === 0) {
-    return `❌ *No SIM records found for:* *${query}*\n\n━━━━━━━━━━━━━━━━\n\n📢 *Join our channel for more tools:*\n👉 [Join @AZ_Tricks](https://t.me/AZ_Tricks)\n\n💬 *Join WhatsApp Channel:*\n👉 [Join WhatsApp](https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D)`;
+    return `❌ *No SIM records found for:* *${query}*\n\n${footer}`;
   }
 
-  let message = `📱 *SIM Details*\n━━━━━━━━━━━━━━━━\n`;
+  let message = `📱 *SIM Details*\n`;
+  message += `━━━━━━━━━━━━━━━━\n`;
   message += `🔍 *Search:* *${query}*\n`;
   message += `📊 *Records Found:* ${records.length}\n\n`;
 
@@ -98,18 +105,12 @@ function renderSimResults(records, query) {
     message += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
     message += `📍 *Address:* ${record.address || 'N/A'}\n`;
     
-    // Line between records (except after last)
     if (index < records.length - 1) {
       message += `─────────────────\n\n`;
     }
   });
 
-  message += `\n━━━━━━━━━━━━━━━━\n`;
-  message += `📢 *Join our channel for more tools:*\n`;
-  message += `👉 [Join @AZ_Tricks](https://t.me/AZ_Tricks)\n\n`;
-  message += `💬 *Join WhatsApp Channel:*\n`;
-  message += `👉 [Join WhatsApp](https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D)`;
-
+  message += `\n${footer}`;
   return message;
 }
 
@@ -118,26 +119,43 @@ function renderSimResults(records, query) {
 // ============================================
 
 async function autoSearch(query, chatId, userId) {
-  // Check if user joined channel
+  // Check channel membership
   const isMember = await checkChannelMembership(userId);
   
   if (!isMember) {
     await sendMessage(chatId, `
-⚠️ *You must join our channel first!*
+⚠️ *You must join our Telegram Channel first!*
 
-📢 *Please join @AZ_Tricks to use this bot.*
-
-👉 [Join Channel](https://t.me/AZ_Tricks)
+📢 Please join ${CHANNEL_USERNAME} to use this bot.
 
 After joining, send your query again.
+
+━━━━━━━━━━━━━━━━
+📢 *Telegram:* ${CHANNEL_USERNAME}
+💬 *WhatsApp:* ${WHATSAPP_LINK}
 
 *Powered by:* @AZ_Tricks
     `);
     return;
   }
 
-  const cleanedQuery = query.replace(/\D/g, '');
-  
+  // Validate query
+  const cleaned = query.replace(/\D/g, '');
+  if (cleaned.length !== 11 && cleaned.length !== 13) {
+    await sendMessage(chatId, `
+❌ *Invalid Format!*
+
+Send:
+📱 *Phone:* 03086756345 (11 digits)
+🪪 *CNIC:* 3220282538606 (13 digits)
+
+━━━━━━━━━━━━━━━━
+📢 *Telegram:* ${CHANNEL_USERNAME}
+💬 *WhatsApp:* ${WHATSAPP_LINK}
+    `);
+    return;
+  }
+
   try {
     const simRecords = await fetchSimDetails(query);
     const message = renderSimResults(simRecords, query);
@@ -150,12 +168,8 @@ After joining, send your query again.
 Please try again later.
 
 ━━━━━━━━━━━━━━━━
-
-📢 *Join our channel for more tools:*
-👉 [Join @AZ_Tricks](https://t.me/AZ_Tricks)
-
-💬 *Join WhatsApp Channel:*
-👉 [Join WhatsApp](https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D)
+📢 *Telegram:* ${CHANNEL_USERNAME}
+💬 *WhatsApp:* ${WHATSAPP_LINK}
     `);
   }
 }
@@ -183,6 +197,7 @@ module.exports = async (req, res) => {
         const userId = update.message.from.id;
         const text = update.message.text || '';
 
+        // /start command
         if (text === '/start') {
           await sendMessage(chatId, `
 👋 *Welcome to AZ Toolkit Bot!*
@@ -192,18 +207,18 @@ module.exports = async (req, res) => {
 📱 *Phone:* 03086756345
 🪪 *CNIC:* 3220282538606
 
-⚠️ *You must join @AZ_Tricks to use this bot.*
+⚠️ *You must join ${CHANNEL_USERNAME} to use this bot.*
 
 ━━━━━━━━━━━━━━━━
-
-📢 *Join our channel:* [@AZ_Tricks](https://t.me/AZ_Tricks)
-💬 *Join WhatsApp:* [WhatsApp Channel](https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D)
+📢 *Telegram:* ${CHANNEL_USERNAME}
+💬 *WhatsApp:* ${WHATSAPP_LINK}
 
 *Powered by:* @AZ_Tricks
           `);
           return res.status(200).send('OK');
         }
 
+        // /help command
         if (text === '/help') {
           await sendMessage(chatId, `
 📚 *How to Use:*
@@ -212,18 +227,18 @@ Send me:
 📱 *Phone:* 03086756345
 🪪 *CNIC:* 3220282538606
 
-⚠️ *Channel join mandatory:* @AZ_Tricks
+⚠️ *Channel join mandatory:* ${CHANNEL_USERNAME}
 
 ━━━━━━━━━━━━━━━━
-
-📢 *Join channel:* [@AZ_Tricks](https://t.me/AZ_Tricks)
-💬 *WhatsApp:* [Join WhatsApp](https://whatsapp.com/channel/0029VbCnO7n17EmtsCYqkD2D)
+📢 *Telegram:* ${CHANNEL_USERNAME}
+💬 *WhatsApp:* ${WHATSAPP_LINK}
 
 *Powered by:* @AZ_Tricks
           `);
           return res.status(200).send('OK');
         }
 
+        // Unknown commands
         if (text.startsWith('/')) {
           await sendMessage(chatId, `
 ❌ *Unknown command:* ${text}
@@ -231,24 +246,8 @@ Send me:
 Send me a phone number or CNIC directly.
 
 ━━━━━━━━━━━━━━━━
-
-📢 *Join @AZ_Tricks for more tools*
-          `);
-          return res.status(200).send('OK');
-        }
-
-        const cleaned = text.replace(/\D/g, '');
-        if (cleaned.length !== 11 && cleaned.length !== 13) {
-          await sendMessage(chatId, `
-❌ *Invalid Format!*
-
-Send:
-📱 *Phone:* 03086756345 (11 digits)
-🪪 *CNIC:* 3220282538606 (13 digits)
-
-━━━━━━━━━━━━━━━━
-
-📢 *Join @AZ_Tricks for more tools*
+📢 *Telegram:* ${CHANNEL_USERNAME}
+💬 *WhatsApp:* ${WHATSAPP_LINK}
           `);
           return res.status(200).send('OK');
         }
