@@ -1,18 +1,11 @@
 {
   "functions": {
-    "api/webhook.js": {
-      "runtime": "nodejs18.x",
-      "includeFiles": "api/**/*.js"
+    "api/index.js": {
+      "runtime": "nodejs18.x"
     }
   },
   "rewrites": [
-    { "source": "/webhook", "destination": "/api/webhook" },
-    { "source": "/(.*)", "destination": "/api/webhook" }
-  ],
-  "routes": [
-    {
-      "src": "/webhook",
-      "dest": "/api/webhook"
-    }
+    { "source": "/webhook", "destination": "/api/index" },
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
