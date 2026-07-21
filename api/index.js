@@ -10,24 +10,6 @@ const NURSE_API = 'https://nurse-chi.vercel.app/api/search';
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
 // ============================================
-// HELPERS
-// ============================================
-
-function cleanCNIC(value) {
-  return value.replace(/[-\s]/g, '');
-}
-
-function getRoleLabel(typeId) {
-  const roles = {
-    1: 'Seller',
-    2: 'Buyer',
-    4: 'Witness',
-    31: 'Party'
-  };
-  return roles[typeId] || `Role ${typeId}`;
-}
-
-// ============================================
 // TELEGRAM FUNCTIONS
 // ============================================
 
@@ -57,10 +39,10 @@ async function sendPhoto(chatId, photoUrl, caption = '') {
 }
 
 // ============================================
-// API FUNCTIONS WITH RAW RESPONSE LOGGING
+// API FUNCTIONS - DIRECT ACCESS
 // ============================================
 
-// 1. SIM API - With full response logging
+// 1. SIM API
 async function fetchSimDetails(query) {
   try {
     const response = await axios.get(`${SIM_API}?q=${encodeURIComponent(query)}`, {
@@ -71,33 +53,13 @@ async function fetchSimDetails(query) {
       }
     });
     
-    const data = response.data;
+    const result = response.data;
+    console.log('📱 SIM Raw:', JSON.stringify(result));
     
-    // Send raw response to a specific chat for debugging (optional)
-    console.log('📱 SIM Full Response:', JSON.stringify(data));
-    
-    // Try multiple response structures
-    if (data.success) {
-      // Structure 1: data.data.records
-      if (data.data && data.data.records && Array.isArray(data.data.records)) {
-        return data.data.records;
-      }
-      // Structure 2: data.records
-      if (data.records && Array.isArray(data.records)) {
-        return data.records;
-      }
-      // Structure 3: data.data is array
-      if (data.data && Array.isArray(data.data)) {
-        return data.data;
-      }
+    // Direct access: result.data.records
+    if (result && result.data && result.data.records) {
+      return result.data.records;
     }
-    
-    // Structure 4: data is array
-    if (Array.isArray(data)) {
-      return data;
-    }
-    
-    console.log('⚠️ No SIM records found in any format');
     return [];
   } catch (error) {
     console.error('SIM Error:', error.message);
@@ -105,38 +67,21 @@ async function fetchSimDetails(query) {
   }
 }
 
-// 2. LAND API - With both with and without dashes
+// 2. LAND API
 async function fetchLandRecord(cnic) {
-  const clean = cleanCNIC(cnic);
-  if (!/^\d{13}$/.test(clean)) return [];
-  
   try {
-    // Try with clean CNIC (without dashes)
-    const response1 = await axios.get(`${LAND_API}?cnic=${clean}`, {
+    const clean = cnic.replace(/[-\s]/g, '');
+    const response = await axios.get(`${LAND_API}?cnic=${clean}`, {
       timeout: 15000
     });
     
-    let data = response1.data;
-    console.log('🏠 Land Response (clean):', JSON.stringify(data).substring(0, 300));
+    const result = response.data;
+    console.log('🏠 Land Raw:', JSON.stringify(result));
     
-    if (data.success && data.data && Array.isArray(data.data) && data.data.length > 0) {
-      return data.data;
+    // Direct access: result.data
+    if (result && result.data && Array.isArray(result.data)) {
+      return result.data;
     }
-    
-    // If not found, try with dashes format
-    const formattedCNIC = clean.replace(/(\d{5})(\d{7})(\d{1})/, '$1-$2-$3');
-    const response2 = await axios.get(`${LAND_API}?cnic=${formattedCNIC}`, {
-      timeout: 15000
-    });
-    
-    data = response2.data;
-    console.log('🏠 Land Response (with dashes):', JSON.stringify(data).substring(0, 300));
-    
-    if (data.success && data.data && Array.isArray(data.data) && data.data.length > 0) {
-      return data.data;
-    }
-    
-    console.log('⚠️ No Land records found in any format');
     return [];
   } catch (error) {
     console.error('Land Error:', error.message);
@@ -146,21 +91,20 @@ async function fetchLandRecord(cnic) {
 
 // 3. NURSE API
 async function fetchNurseRecord(cnic) {
-  const clean = cleanCNIC(cnic);
-  if (!/^\d{13}$/.test(clean)) return null;
-  
   try {
+    const clean = cnic.replace(/[-\s]/g, '');
     const response = await axios.get(`${NURSE_API}?cnic=${clean}`, {
       timeout: 15000
     });
     
-    const data = response.data;
-    console.log('👩‍⚕️ Nurse Response:', JSON.stringify(data).substring(0, 300));
+    const result = response.data;
+    console.log('👩‍⚕️ Nurse Raw:', JSON.stringify(result));
     
-    if (data.success && data.data) {
+    // Direct access: result.data
+    if (result && result.data) {
       return {
-        info: data.data,
-        photo: data.photo || null
+        info: result.data,
+        photo: result.photo || null
       };
     }
     return null;
@@ -184,10 +128,10 @@ function renderSimResults(records, query) {
   message += `📊 *Records Found:* ${records.length}\n\n`;
 
   records.forEach((record, index) => {
-    message += `👤 *Name:* ${record.full_name || record.name || 'N/A'}\n`;
-    message += `📱 *Phone:* ${record.phone || record.mobile || 'N/A'}\n`;
-    message += `🪪 *CNIC:* ${record.cnic || record.nic || 'N/A'}\n`;
-    message += `📍 *Address:* ${record.address || record.add || 'N/A'}\n`;
+    message += `👤 *Name:* ${record.full_name || 'N/A'}\n`;
+    message += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
+    message += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
+    message += `📍 *Address:* ${record.address || 'N/A'}\n`;
     if (index < records.length - 1) {
       message += `─────────────────\n`;
     }
@@ -204,7 +148,7 @@ function renderLandResults(records, query) {
 
   const seen = new Set();
   const unique = records.filter(item => {
-    const id = item._source?.Id || item.Id || item.id;
+    const id = item._source?.Id;
     if (seen.has(id)) return false;
     seen.add(id);
     return true;
@@ -215,21 +159,24 @@ function renderLandResults(records, query) {
   message += `📊 *Records Found:* ${unique.length}\n\n`;
 
   unique.forEach((item, index) => {
-    const src = item._source || item;
+    const src = item._source || {};
     const parties = src.RegistryParties || [];
 
-    message += `📄 *Registry #${src.Id || src.id || 'N/A'}*\n`;
-    message += `📅 *Date:* ${src.RegistryDate || src.registryDate || 'N/A'}\n`;
-    message += `🏷️ *Type:* ${src.RegistryType || src.registryType || 'N/A'}\n`;
-    message += `📍 *Mauza:* ${src.MauzaName || src.mauzaName || 'N/A'}\n`;
-    message += `🏛️ *Tehsil:* ${src.Tehsil || src.tehsil || 'N/A'}\n`;
-    message += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : src.registryValue || 'N/A'}\n`;
+    message += `📄 *Registry #${src.Id || 'N/A'}*\n`;
+    message += `📅 *Date:* ${src.RegistryDate || 'N/A'}\n`;
+    message += `🏷️ *Type:* ${src.RegistryType || 'N/A'}\n`;
+    message += `📍 *Mauza:* ${src.MauzaName || 'N/A'}\n`;
+    message += `🏛️ *Tehsil:* ${src.Tehsil || 'N/A'}\n`;
+    message += `💰 *Value:* ${src.RegistryValue ? src.RegistryValue.toLocaleString() : 'N/A'}\n`;
 
     if (parties.length > 0) {
       message += `\n👥 *Parties:*\n`;
       parties.forEach(p => {
         const spouse = p.SpouseName ? ` (S/o: ${p.SpouseName})` : '';
-        message += `  • ${p.Name || 'N/A'}${spouse} - ${getRoleLabel(p.RegistryPartiesTypeId)}\n`;
+        const role = p.RegistryPartiesTypeId === 1 ? 'Seller' :
+                    p.RegistryPartiesTypeId === 2 ? 'Buyer' :
+                    p.RegistryPartiesTypeId === 4 ? 'Witness' : 'Party';
+        message += `  • ${p.Name || 'N/A'}${spouse} - ${role}\n`;
       });
     }
 
@@ -274,8 +221,7 @@ async function autoSearch(query, chatId) {
   try {
     // 1. SIM API
     const simRecords = await fetchSimDetails(query);
-    const simMessage = renderSimResults(simRecords, query);
-    await sendMessage(chatId, simMessage);
+    await sendMessage(chatId, renderSimResults(simRecords, query));
 
     // 2. Land & Nurse (if CNIC)
     if (cleanedQuery.length === 13) {
@@ -284,13 +230,10 @@ async function autoSearch(query, chatId) {
         fetchNurseRecord(query)
       ]);
 
-      const landMessage = renderLandResults(landRecords, query);
-      await sendMessage(chatId, landMessage);
+      await sendMessage(chatId, renderLandResults(landRecords, query));
 
       if (nurseData) {
-        const nurseMessage = renderNurseResults(nurseData, query);
-        await sendMessage(chatId, nurseMessage);
-
+        await sendMessage(chatId, renderNurseResults(nurseData, query));
         if (nurseData.photo) {
           try {
             await sendPhoto(chatId, nurseData.photo, `🆔 *Nurse:* ${nurseData.info['Full Name'] || 'N/A'}`);
@@ -310,7 +253,7 @@ async function autoSearch(query, chatId) {
 
   } catch (error) {
     console.error('Search Error:', error.message);
-    await sendMessage(chatId, `❌ *Error processing request for:* *${query}*\n\nPlease try again later.`);
+    await sendMessage(chatId, `❌ *Error processing request for:* *${query}*`);
   }
 }
 
@@ -324,8 +267,7 @@ module.exports = async (req, res) => {
       status: 'ok',
       message: 'AZ Toolkit Bot is running',
       bot: '@AZToolkitBot',
-      credit: 'AZ Tricks',
-      webhook_url: 'https://az-toolkit.vercel.app/webhook'
+      credit: 'AZ Tricks'
     });
   }
 
@@ -346,8 +288,6 @@ module.exports = async (req, res) => {
 📱 *Phone:* 03086756345
 🪪 *CNIC:* 3440106097263
 
-I'll auto-detect and search all databases!
-
 *Powered by:* @AZ_Tricks
           `);
           return res.status(200).send('OK');
@@ -357,26 +297,7 @@ I'll auto-detect and search all databases!
           await sendMessage(chatId, `
 📚 *How to Use:*
 
-Just send me any of these:
-📱 *Phone Number:* 03086756345
-🪪 *CNIC:* 3440106097263
-
-I'll automatically:
-✅ Search SIM details
-✅ Search Land Record (if CNIC)
-✅ Search Nurse Record (if CNIC)
-
-*Powered by:* @AZ_Tricks
-          `);
-          return res.status(200).send('OK');
-        }
-
-        if (text.startsWith('/')) {
-          await sendMessage(chatId, `
-❌ *Unknown command: ${text}*
-
-Just send me any CNIC or Phone Number directly!
-
+Just send me:
 📱 *Phone:* 03086756345
 🪪 *CNIC:* 3440106097263
 
@@ -385,18 +306,19 @@ Just send me any CNIC or Phone Number directly!
           return res.status(200).send('OK');
         }
 
+        if (text.startsWith('/')) {
+          await sendMessage(chatId, `❌ *Unknown command:* ${text}`);
+          return res.status(200).send('OK');
+        }
+
         const cleaned = text.replace(/\D/g, '');
         if (cleaned.length !== 11 && cleaned.length !== 13) {
           await sendMessage(chatId, `
 ❌ *Invalid Format!*
 
-Please send:
+Send:
 📱 *Phone:* 03086756345 (11 digits)
 🪪 *CNIC:* 3440106097263 (13 digits)
-
-*Example:* 3440106097263 or 03086756345
-
-*Powered by:* @AZ_Tricks
           `);
           return res.status(200).send('OK');
         }
