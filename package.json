@@ -1,7 +1,6 @@
 {
   "name": "az-toolkit",
   "version": "1.0.0",
-  "description": "AZ Toolkit Telegram Bot",
   "main": "api/index.js",
   "scripts": {
     "start": "node api/index.js"
@@ -9,6 +8,7 @@
   "dependencies": {
     "axios": "^1.6.0"
   },
-  "author": "AZ Tricks",
-  "license": "MIT"
+  "engines": {
+    "node": "18.x"
+  }
 }
