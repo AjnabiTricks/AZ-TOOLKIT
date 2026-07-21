@@ -1,11 +1,12 @@
 {
   "functions": {
-    "bot.js": {
+    "api/bot.js": {
       "runtime": "nodejs18.x"
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/bot.js" }
+    { "source": "/webhook", "destination": "/api/bot.js" },
+    { "source": "/(.*)", "destination": "/api/bot.js" }
   ],
   "headers": [
     {
