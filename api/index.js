@@ -57,32 +57,25 @@ async function sendPhoto(chatId, photoUrl, caption = '') {
 }
 
 // ============================================
-// API FUNCTIONS WITH FALLBACK
+// API FUNCTIONS - EXACT RESPONSE STRUCTURE
 // ============================================
 
-async function fetchWithTimeout(url, timeout = 8000) {
+// 1. SIM API
+async function fetchSimDetails(query) {
   try {
-    const response = await axios.get(url, {
-      timeout: timeout,
+    const response = await axios.get(`${SIM_API}?q=${encodeURIComponent(query)}`, {
+      timeout: 15000,
       headers: {
         'User-Agent': 'Mozilla/5.0',
         'Accept': 'application/json'
       }
     });
-    return response.data;
-  } catch (error) {
-    console.error('API Error:', error.message);
-    return null;
-  }
-}
-
-// ============================================
-// 1. SIM API - FASTEST
-// ============================================
-async function fetchSimDetails(query) {
-  try {
-    const data = await fetchWithTimeout(`${SIM_API}?q=${encodeURIComponent(query)}`, 8000);
-    if (data && data.success && data.data?.records_count > 0) {
+    
+    const data = response.data;
+    console.log('📱 SIM Response:', JSON.stringify(data).substring(0, 200));
+    
+    // Exact structure from your response
+    if (data.success && data.data && data.data.records) {
       return data.data.records;
     }
     return [];
@@ -92,16 +85,21 @@ async function fetchSimDetails(query) {
   }
 }
 
-// ============================================
 // 2. LAND API
-// ============================================
 async function fetchLandRecord(cnic) {
   const clean = cleanCNIC(cnic);
   if (!/^\d{13}$/.test(clean)) return [];
   
   try {
-    const data = await fetchWithTimeout(`${LAND_API}?cnic=${clean}`, 10000);
-    if (data && data.success && data.data?.length > 0) {
+    const response = await axios.get(`${LAND_API}?cnic=${clean}`, {
+      timeout: 15000
+    });
+    
+    const data = response.data;
+    console.log('🏠 Land Response:', JSON.stringify(data).substring(0, 200));
+    
+    // Exact structure from your response
+    if (data.success && data.data && Array.isArray(data.data)) {
       return data.data;
     }
     return [];
@@ -111,29 +109,23 @@ async function fetchLandRecord(cnic) {
   }
 }
 
-// ============================================
-// 3. NURSE API - FIXED
-// ============================================
+// 3. NURSE API
 async function fetchNurseRecord(cnic) {
   const clean = cleanCNIC(cnic);
   if (!/^\d{13}$/.test(clean)) return null;
   
   try {
-    const data = await fetchWithTimeout(`${NURSE_API}?cnic=${clean}`, 10000);
-    if (data && data.success && data.data) {
-      // Extract all fields safely
-      const info = data.data;
+    const response = await axios.get(`${NURSE_API}?cnic=${clean}`, {
+      timeout: 15000
+    });
+    
+    const data = response.data;
+    console.log('👩‍⚕️ Nurse Response:', JSON.stringify(data).substring(0, 200));
+    
+    // Exact structure from your response
+    if (data.success && data.data) {
       return {
-        info: {
-          'Full Name': info['Full Name'] || info['full_name'] || info['name'] || 'N/A',
-          'NIC Number': info['NIC Number'] || info['nic_number'] || info['cnic'] || 'N/A',
-          'Qualification': info['Qualification'] || info['qualification'] || 'N/A',
-          'Speciality': info['Speciality'] || info['speciality'] || 'N/A',
-          'Registration Category': info['Registration Category'] || info['registration_category'] || info['category'] || 'N/A',
-          'Registration Number': info['Registration Number'] || info['registration_number'] || info['reg_number'] || 'N/A',
-          'Initial Registration Date': info['Initial Registration Date'] || info['initial_registration_date'] || info['reg_date'] || 'N/A',
-          'License Expiration Date': info['License Expiration Date'] || info['license_expiration_date'] || info['expiry_date'] || 'N/A'
-        },
+        info: data.data,
         photo: data.photo || null
       };
     }
@@ -148,9 +140,10 @@ async function fetchNurseRecord(cnic) {
 // RENDER FUNCTIONS
 // ============================================
 
+// SIM Render
 function renderSimResults(records, query) {
   if (!records || records.length === 0) {
-    return `❌ *No SIM records found for:* *${query}*\n\n💡 *Tip:* Try with or without dashes.`;
+    return `❌ *No SIM records found for:* *${query}*`;
   }
 
   let message = `📱 *SIM Details*\n━━━━━━━━━━━━━━━━\n`;
@@ -158,10 +151,10 @@ function renderSimResults(records, query) {
   message += `📊 *Records Found:* ${records.length}\n\n`;
 
   records.forEach((record, index) => {
-    message += `👤 *Name:* ${record.full_name || record.name || 'N/A'}\n`;
-    message += `📱 *Phone:* ${record.phone || record.mobile || 'N/A'}\n`;
-    message += `🪪 *CNIC:* ${record.cnic || record.nic || 'N/A'}\n`;
-    message += `📍 *Address:* ${record.address || record.add || 'N/A'}\n`;
+    message += `👤 *Name:* ${record.full_name || 'N/A'}\n`;
+    message += `📱 *Phone:* ${record.phone || 'N/A'}\n`;
+    message += `🪪 *CNIC:* ${record.cnic || 'N/A'}\n`;
+    message += `📍 *Address:* ${record.address || 'N/A'}\n`;
     if (index < records.length - 1) {
       message += `─────────────────\n`;
     }
@@ -171,11 +164,13 @@ function renderSimResults(records, query) {
   return message;
 }
 
+// Land Render
 function renderLandResults(records, query) {
   if (!records || records.length === 0) {
     return `❌ *No Land records found for:* *${query}*`;
   }
 
+  // Remove duplicates
   const seen = new Set();
   const unique = records.filter(item => {
     const id = item._source?.Id;
@@ -216,8 +211,9 @@ function renderLandResults(records, query) {
   return message;
 }
 
+// Nurse Render
 function renderNurseResults(data, query) {
-  if (!data) {
+  if (!data || !data.info) {
     return `❌ *No Nurse record found for:* *${query}*`;
   }
 
@@ -239,20 +235,21 @@ function renderNurseResults(data, query) {
 }
 
 // ============================================
-// SEARCH FUNCTION - OPTIMIZED
+// SEARCH FUNCTION
 // ============================================
 
 async function autoSearch(query, chatId) {
   const cleanedQuery = query.replace(/\D/g, '');
   
   try {
-    // 1. SIM API - Fastest, send first
+    // 1. SIM API - Always call
     const simRecords = await fetchSimDetails(query);
     const simMessage = renderSimResults(simRecords, query);
     await sendMessage(chatId, simMessage);
 
-    // 2. Land & Nurse (if CNIC) - Parallel
+    // 2. Land & Nurse (if CNIC)
     if (cleanedQuery.length === 13) {
+      // Call both in parallel
       const [landRecords, nurseData] = await Promise.all([
         fetchLandRecord(query),
         fetchNurseRecord(query)
@@ -267,13 +264,12 @@ async function autoSearch(query, chatId) {
         const nurseMessage = renderNurseResults(nurseData, query);
         await sendMessage(chatId, nurseMessage);
 
-        // Send photo separately if available
+        // Send photo separately
         if (nurseData.photo) {
           try {
             await sendPhoto(chatId, nurseData.photo, `🆔 *Nurse:* ${nurseData.info['Full Name'] || 'N/A'}`);
           } catch (photoError) {
             console.error('Photo Error:', photoError.message);
-            await sendMessage(chatId, `⚠️ *Photo not available for:* *${query}*`);
           }
         }
       } else {
@@ -281,7 +277,7 @@ async function autoSearch(query, chatId) {
       }
     }
 
-    // If only phone number
+    // If phone number only
     if (cleanedQuery.length === 11) {
       await sendMessage(chatId, `ℹ️ *Land Record:* Not applicable for phone number *${query}*`);
       await sendMessage(chatId, `ℹ️ *Nurse Record:* Not applicable for phone number *${query}*`);
@@ -324,7 +320,6 @@ module.exports = async (req, res) => {
 
 📱 *Phone:* 03086756345
 🪪 *CNIC:* 3440106097263
-🪪 *CNIC with dashes:* 34401-0609726-3
 
 I'll auto-detect and search all databases!
 
