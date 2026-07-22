@@ -1,17 +1,13 @@
 {
-  "name": "az-toolkit",
+  "name": "telegram-search-bot",
   "version": "1.0.0",
-  "description": "AZ Toolkit Telegram Bot",
-  "main": "api/index.js",
+  "description": "Telegram bot for searching SIM, property, and nurse records",
+  "main": "api/bot.js",
   "scripts": {
-    "start": "node api/index.js"
+    "start": "node api/bot.js"
   },
   "dependencies": {
+    "node-telegram-bot-api": "^0.61.0",
     "axios": "^1.6.0"
-  },
-  "engines": {
-    "node": "24.x"
-  },
-  "author": "AZ Tricks",
-  "license": "MIT"
+  }
 }
